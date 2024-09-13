@@ -41,7 +41,7 @@ This experiment investigates the effectiveness of prompts with varying levels of
 | Llama3-8B-instruct | Decoder |  meta-llama/Meta-Llama-3-8B-Instruct  | Access request required |
 
 
-#####Result reproduction
+##### Result reproduction
 To reproduce our findings for any of the datasets, follow these steps:
 1.Open the project directory and navigate to either:
 The "COT" folder, or
