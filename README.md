@@ -29,3 +29,20 @@ Where MODEL is the model's id on huggingface, described in the table above.
 
 **Note**: for the Clef 1C dataset: you have to also add the "--language LANGUAGE" flag when executing the training scripts. If it's not included, it defaults to English. The languages are: English, Dutch, Bulgarian, Arabic.  
 _Example:_ `python train_encoder_seq_cls.py --model_name MODEL --language Bulgarian --epochs 3 --runs 5` 
+
+
+
+#### ICL experiment
+This experiment focuses on using different prompts (see tables in the Appendix of the paper) with Few-shots and CoT. The computing infrastructure for this experiment included two Tesla P40 GPUs, one NVIDIA GeForce RTX 2080 Ti GPU.
+
+##### Model tested:
+| Model name | Model Architecture | Huggingface ID | Note |
+| Llama3-8B-instruct | Decoder |  meta-llama/Meta-Llama-3-8B-Instruct  | Access request required |
+
+
+#####Result reproduction
+To reproduce our findings for any of the datasets, follow these steps:
+1. Navigate to the COT or Llama3/0-shot/Llama3Instruct_scripts
+2. Change the tsv_directory to where datasets have been downloaded
+3. Change the Instructions following the ICL templates given in the paper
+   
