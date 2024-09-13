@@ -1,0 +1,10 @@
+transformers
+datasets
+trl
+peft
+bitsandbytes
+accelerate
+huggingface_hub
+numpy
+matplotlib
+evaluate[evaluator]

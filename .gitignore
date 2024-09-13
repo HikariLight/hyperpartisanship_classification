@@ -1,0 +1,7 @@
+__pycache__/
+wandb/
+output/
+misc/
+jobs/
+.ipynb_checkpoints/
+*.sl
