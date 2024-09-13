@@ -42,12 +42,13 @@ This experiment investigates the effectiveness of prompts with varying levels of
 
 
 ##### Result reproduction
+
 To reproduce our findings for any of the datasets, follow these steps:
-1.Open the project directory and navigate to either:
+1. Open the project directory and navigate to either:
 The "COT" folder, or
 The "Llama3/0-shot/Llama3Instruct_scripts" directory
-2.Locate and open the configuration file (likely named something like "config.py" or "settings.py")
-3.Find the variable named "tsv_directory" and update its value to the full path where you've downloaded the datasets. For example:
-4.tsv_directory = "/home/user/projects/datasets"
-5. In the same configuration file, find the section for prompt instructions. Modify these instructions to match the In-Context Learning (ICL) templates provided in the paper's appendix. Ensure you're using the correct template for your chosen method (COT or 0-shot).
+2. Locate and open the configuration file (likely named something like "config.py" or "settings.py")
+3. Find the variable named "tsv_directory" and update its value to the full path where you've downloaded the datasets. For example:tsv_directory = "/home/user/projects/datasets"
+4. In the same configuration file, find the section for prompt instructions. Modify these instructions to match the In-Context Learning (ICL) templates provided in the paper's appendix. Ensure you're using the correct template for your chosen method (COT or 0-shot).
+
    
