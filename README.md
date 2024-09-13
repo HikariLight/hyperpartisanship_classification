@@ -33,16 +33,21 @@ _Example:_ `python train_encoder_seq_cls.py --model_name MODEL --language Bulgar
 
 
 #### ICL experiment
-This experiment focuses on using different prompts (see tables in the Appendix of the paper) with Few-shots and CoT. The computing infrastructure for this experiment included two Tesla P40 GPUs, one NVIDIA GeForce RTX 2080 Ti GPU.
+This experiment investigates the effectiveness of prompts with varying levels of reasoning complexity, utilizing Few-shot learning and Chain-of-Thought (CoT) approaches. The prompts, detailed in the Appendix tables, range from simple to more elaborate reasoning structures. To conduct this experiment, we employed a computing infrastructure consisting of two Tesla P40 GPUs and one NVIDIA GeForce RTX 2080 Ti GPU.
 
-##### Model tested:
+##### Models tested:
 | Model name | Model Architecture | Huggingface ID | Note |
+|---|---|---|---|
 | Llama3-8B-instruct | Decoder |  meta-llama/Meta-Llama-3-8B-Instruct  | Access request required |
 
 
 #####Result reproduction
 To reproduce our findings for any of the datasets, follow these steps:
-1. Navigate to the COT or Llama3/0-shot/Llama3Instruct_scripts
-2. Change the tsv_directory to where datasets have been downloaded
-3. Change the Instructions following the ICL templates given in the paper
+1.Open the project directory and navigate to either:
+The "COT" folder, or
+The "Llama3/0-shot/Llama3Instruct_scripts" directory
+2.Locate and open the configuration file (likely named something like "config.py" or "settings.py")
+3.Find the variable named "tsv_directory" and update its value to the full path where you've downloaded the datasets. For example:
+4.tsv_directory = "/home/user/projects/datasets"
+5. In the same configuration file, find the section for prompt instructions. Modify these instructions to match the In-Context Learning (ICL) templates provided in the paper's appendix. Ensure you're using the correct template for your chosen method (COT or 0-shot).
    
