@@ -68,22 +68,30 @@ for _ in range(args.runs):
 
     # ---- Dataset loading + Processing
     max_len = 512
-    fake_dataset = load_dataset("csv", data_files="./data/politifact_fake.csv")
-    real_dataset = load_dataset("csv", data_files="./data/politifact_real.csv")
 
-    fakes = fake_dataset["train"].to_list()
-    real = real_dataset["train"].to_list()
+    fake_split = [
+        "./data/politifact_fake.csv",
+        "./data/gossipcop_fake.csv",
+    ]
+
+    real_split = [
+        "./data/politifact_real.csv",
+        "./data/gossipcop_real.csv",
+    ]
+
+    fakes = load_dataset("csv", data_files=fake_split, split="train").to_list()
+    real = load_dataset("csv", data_files=real_split, split="train").to_list()
 
     for i in range(len(fakes)):
         fakes[i]["label"] = 0
 
     for i in range(len(real)):
         real[i]["label"] = 1
-
+    
     dataset = Dataset.from_list(fakes + real)
-    dataset = dataset.train_test_split(test_size=0.2, shuffle=True, seed=42)
-    dataset = dataset.remove_columns(["id", "news_url", "tweet_ids"])
     dataset = dataset.rename_column("title", "text")
+    dataset = dataset.remove_columns(["id", "news_url", "tweet_ids"])
+    dataset = dataset.train_test_split(test_size=0.2, shuffle=True, seed=42)
     print(dataset)
 
     def tokenization_func(examples):
