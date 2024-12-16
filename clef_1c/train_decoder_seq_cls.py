@@ -7,7 +7,7 @@ from transformers import (
     DataCollatorWithPadding,
 )
 from peft import LoraConfig, get_peft_model
-from datasets import load_dataset
+from datasets import load_dataset, Features, Value
 import numpy as np
 import evaluate
 import wandb
@@ -75,11 +75,21 @@ for _ in range(args.runs):
     # ---- Dataset loading + Processing
     max_len = 512
 
-    dataset = load_dataset(
-        "csv", data_files=f"./data/CLEF_1C_{args.language}.tsv", delimiter="\t"
+    features = Features(
+        {
+            "tweet_text": Value("string"),
+            "class_label": Value("int64"),
+        }
     )
 
-    dataset = dataset["train"].train_test_split(test_size=0.2, shuffle=True, seed=42)
+    data_files = {
+        "train": f"./data/CT22_{args.language.lower()}_1C_harmful_train.tsv",
+        "test": f"./data/CT22_{args.language.lower()}_1C_harmful_test_gold.tsv",
+    }
+
+    dataset = load_dataset(
+        "csv", data_files=data_files, delimiter="\t", features=features
+    )
     dataset = dataset.rename_column("class_label", "label")
     dataset = dataset.rename_column("tweet_text", "text")
     print(dataset)

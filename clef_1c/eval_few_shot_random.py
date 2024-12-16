@@ -4,7 +4,7 @@ from transformers import (
     BitsAndBytesConfig,
     set_seed,
 )
-from datasets import load_dataset
+from datasets import load_dataset, Features, Value
 import argparse
 import torch
 import time
@@ -65,15 +65,22 @@ model.generation_config.pad_token_id = tokenizer.pad_token_id
 print(model.generation_config)
 
 # ---- Dataset loading/Processing
-dataset = load_dataset(
-    "csv", data_files=f"./data/CLEF_1C_{args.language}.tsv", delimiter="\t"
+features = Features(
+    {
+        "tweet_text": Value("string"),
+        "class_label": Value("int64"),
+    }
 )
-dataset = dataset["train"].train_test_split(test_size=0.2, shuffle=True, seed=42)
+
+data_files = {
+    "train": f"./data/CT22_{args.language.lower()}_1C_harmful_train.tsv",
+    "test": f"./data/CT22_{args.language.lower()}_1C_harmful_test_gold.tsv",
+}
+
+dataset = load_dataset("csv", data_files=data_files, delimiter="\t", features=features)
 dataset = dataset.rename_column("class_label", "label")
 dataset = dataset.rename_column("tweet_text", "text")
 print(dataset)
-print(dataset["train"][0])
-
 
 # ---- Inference utils
 prompt = """
@@ -97,7 +104,7 @@ def parse_label(model_output):
     return int(match.group()) if match else None
 
 
-def generate(model, tokenizer, prompt, few_shot_examples, element):
+def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0.1):
     messages = [
         {
             "role": "system",
@@ -112,7 +119,7 @@ def generate(model, tokenizer, prompt, few_shot_examples, element):
     model_inputs = tokenizer([text], return_tensors="pt").to(device)
 
     generated_ids = model.generate(
-        model_inputs.input_ids, max_new_tokens=16, temperature=0.1
+        model_inputs.input_ids, max_new_tokens=16, temperature=temperature
     )
     generated_ids = [
         output_ids[len(input_ids) :]
@@ -184,9 +191,7 @@ for seed in seeds:
                 print(" > Irregular output:  ", pred)
 
                 print("*" * 5, "Trying to resolve irregularity", "*" * 5)
-                for _ in range(
-                    5
-                ):  # Try 5 times to resolve  the irregularity with higher temperature
+                while True:
                     pred = generate(
                         model,
                         tokenizer,

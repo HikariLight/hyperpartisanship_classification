@@ -8,6 +8,7 @@ from datasets import load_dataset, Features, Value
 import argparse
 import torch
 import time
+import random
 import json
 import re
 import wandb
@@ -16,9 +17,8 @@ from utils import compute_metrics, compute_fews_hot_nested_avg
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 set_seed(42)
 
-
 # --- Params parsing
-parser = argparse.ArgumentParser(prog="DPP Few-Shot Eval script")
+parser = argparse.ArgumentParser(prog="Randomized Few-Shot Eval script")
 parser.add_argument(
     "--model_name", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct"
 )
@@ -28,15 +28,14 @@ parser.add_argument("--verbose", action="store_true")
 args = parser.parse_args()
 print(args)
 
+
 main_run = wandb.init(
     project="CLEF2022task1C",
     entity="michelej-m",
-    name=f"{args.model_name.split('/')[1]}_few_shot_dpp",
-    reinit=True,
+    name=f"{args.model_name.split('/')[1]}_few_shot_random",
 )
 main_run.log({"num_runs": 5})
 main_run.log({"language": args.language})
-
 
 # ---- Model/Tokenizer loading
 if args.use_quantization:
@@ -83,22 +82,12 @@ dataset = dataset.rename_column("class_label", "label")
 dataset = dataset.rename_column("tweet_text", "text")
 print(dataset)
 
-num_labels = len(dataset["train"].unique("label"))
-print(" > Label num: ", num_labels)
-
-# Loading DPP Few-Shot examples
-with open(f"./data/dpp_few_shot_examples_{args.language.lower()}.json") as json_file:
-    few_shot_examples = json.load(json_file)
-
 # ---- Inference utils
 prompt = """
 ### Instruction:
 
 Given a news headline determine if it is real or fake news.
 The output consists in only one integer with this format: 'integer'. If the news headline is fake the output will be '1', if real '0'.
-
-### Examples
-{}
 
 ###Input:
 {}
@@ -136,80 +125,57 @@ def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0
     output = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
     return output
 
-
-def construct_few_shot_string(data, example_set, few_shot_n, num_labels):
-    few_shot_string = ""
-
-    examples_per_label = few_shot_n // num_labels
-
-    for label in data[example_set]:
-        for n in range(examples_per_label):
-            few_shot_string += data[example_set][label][n] + "\n"
-
-    return few_shot_string
-
-
 # ---- Inference
+dataset_labels = list(set(dataset["train"]["label"]))
+
 results = {}
 model_outputs = {}
 
 start_time = time.time()
-for few_shot_set in few_shot_examples:
-    print("=" * 15, f" Running evals using: {few_shot_set} ", "=" * 15)
+irregular_outputs = 0
+preds = []
+refs = []
 
-    results[few_shot_set] = {}
-    model_outputs[few_shot_set] = {}
+for element in dataset["test"]:
+    pred = generate(model, tokenizer, prompt, element["text"])
 
-    for n in range(num_labels, 11, num_labels):  # 10 shot with a step size of num_labels
-        print("-" * 10, f" Evaluating {n}-shot ", "-" * 10)
-        results[few_shot_set][f"{n}_shot"] = {}
+    args.verbose and print(" > Pred: ", pred)
+    args.verbose and print(" > Ref: ", element["label"])
 
-        few_shots_string = construct_few_shot_string(
-            few_shot_examples, few_shot_set, n, num_labels
-        )
+    if parse_label(pred) is None:
+        print(" > Irregular output:  ", pred)
 
-        irregular_outputs = 0
-        preds = []
-        refs = []
+        print("*" * 5, "Trying to resolve irregularity", "*" * 5)
+        for _ in range(
+            5
+        ):  # Try 5 times to resolve  the irregularity with higher temperature
+            pred = generate(
+                model,
+                tokenizer,
+                prompt,
+                element["text"],
+                temperature=0.7,
+            )
+            print(" >> Attempted Pred: ", pred)
 
-        for element in dataset["test"]:
-            pred = generate(model, tokenizer, prompt, few_shots_string, element["text"])
+            if parse_label(pred) is not None:
+                print(" >> Regularized output: ", pred)
+                break
+        irregular_outputs += 1
+        continue
 
-            args.verbose and print(" > Pred: ", pred)
-            args.verbose and print(" > Ref: ", element["label"])
+    preds.append(parse_label(pred))
+    refs.append(element["label"])
 
-            if parse_label(pred) is None:
-                print(" > Irregular output:  ", pred)
+evals = compute_metrics(preds, refs)
+evals["irregular_outputs"] = irregular_outputs
+model_outputs = {
+    "ground_truth": refs,
+    "model_predictions": preds,
+}
+print(json.dumps(evals, indent=4))
 
-                print("*" * 5, "Trying to resolve irregularity", "*" * 5)
-                while True:
-                    pred = generate(
-                        model,
-                        tokenizer,
-                        prompt,
-                        few_shots_string,
-                        element["text"],
-                        temperature=0.7,
-                    )
-                    print(" >> Attempted Pred: ", pred)
-
-                    if parse_label(pred) is not None:
-                        print(" >> Regularized output: ", pred)
-                        break
-                irregular_outputs += 1
-                continue
-
-            preds.append(parse_label(pred))
-            refs.append(element["label"])
-
-        evals = compute_metrics(preds, refs)
-        evals["irregular_outputs"] = irregular_outputs
-        results[few_shot_set][f"{n}_shot"] = evals
-        model_outputs[few_shot_set] = {"ground_truth": refs, "model_predictions": preds}
-        print(json.dumps(evals, indent=4))
-
-    args.verbose and print(json.dumps(results, indent=4))
-
+args.verbose and print(json.dumps(results, indent=4))
 
 final_evals = compute_fews_hot_nested_avg(results)
 print(json.dumps(final_evals, indent=4))
@@ -219,15 +185,14 @@ print(f" > Inference execution time: {(time.time() - start_time):.2f}s")
 # ---- Saving results/outputs to JSON files
 with open("results.json", "w") as json_file:
     json.dump(results, json_file, indent=4)
+main_run.save("results.json")
 
 with open("avg_results.json", "w") as json_file:
     json.dump(final_evals, json_file, indent=4)
+main_run.save("avg_results.json")
 
 with open("model_outputs.json", "w") as json_file:
     json.dump(model_outputs, json_file, indent=4)
-
-main_run.save("results.json")
-main_run.save("avg_results.json")
 main_run.save("model_outputs.json")
 
 main_run.finish()
@@ -237,7 +202,7 @@ for few_shot_config in final_evals:
     run = wandb.init(
         project="CLEF2022task1C",
         entity="michelej-m",
-        name=f"dpp_{few_shot_config}",
+        name=f"random_{few_shot_config}",
         reinit=True,
     )
     run.log({"num_runs": 5})
