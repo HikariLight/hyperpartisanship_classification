@@ -68,6 +68,7 @@ dataset_path = "./data/allsides_balanced_news_headlines-texts.csv"
 dataset = load_dataset("csv", data_files=dataset_path)
 dataset = dataset["train"].train_test_split(test_size=0.2)
 
+
 def concatenate_header_text(example):
     heading = example["heading"]
     text = example["text"]
@@ -75,20 +76,26 @@ def concatenate_header_text(example):
     example["label"] = labels.index(example["bias_rating"])
     return example
 
+
 dataset = dataset.map(concatenate_header_text)
 print(dataset)
 
+dataset_labels = list(set(dataset["train"]["label"]))
+print(labels)
+print(dataset_labels)
+
 # ---- Inference utils
-prompt = """### Instruction: Determine the political leaning of the headline. The possible choices are: ’0’ if the article is left-wing, ’1’ if the political leaning is from the center, ’2’ if the article is right-wing’. 
+prompt = """
+### Instruction: Determine the political leaning of the headline. The possible choices are: ’0’ if the article is left-wing, ’1’ if the political leaning is from the center, ’2’ if the article is right-wing’. 
 The output of the label is only one integer like this example: ’integer’. 
-###Example:
+
+### Examples
 {}
 
-###Input: 
-{} 
+###Input:
+{}
 
-
-###Response: 
+### Response:
 """
 
 
@@ -112,7 +119,7 @@ def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0
     model_inputs = tokenizer([text], return_tensors="pt").to(device)
 
     generated_ids = model.generate(
-        model_inputs.input_ids, max_new_tokens=16, temperature=temperature
+        model_inputs.input_ids, max_new_tokens=20, temperature=temperature
     )
     generated_ids = [
         output_ids[len(input_ids) :]
@@ -133,6 +140,7 @@ def construct_few_shot_string(few_shot_examples):
 
 # ---- Inference
 seeds = [42, 12345, 9876, 2024, 8675309]
+
 results = {}
 model_outputs = {}
 run_settings = {}
@@ -152,12 +160,21 @@ for seed in seeds:
         print("-" * 10, f" Evaluating {n}-shot ", "-" * 10)
         results[f"seed_{seed}"][f"{n}_shot"] = {}
 
-        # ---- Constructing few-shot examples
-        random_index = random.randint(0, len(dataset["train"]) - 1)
-        random_element = dataset["train"][random_index]
+        # ---- Selecting a unique example from the dataset (alternating labels)
+        shot_label = n % len(dataset_labels)
+        filtered_dataset = dataset["train"].filter(
+            lambda example: example["label"] == shot_label
+        )
+        while True:
+            random_index = random.randint(0, len(filtered_dataset) - 1)
+            random_element = dataset["train"][random_index]
+            if random_element not in few_shot_examples:
+                break
         few_shot_examples.append(random_element)
+
+        # ---- Constructing few-shot example
         few_shots_string = construct_few_shot_string(few_shot_examples)
-        run_settings[f"seed_{seed}"][f"{n}_shot"] = few_shot_examples
+        run_settings[f"seed_{seed}"][f"{n}_shot"] = few_shot_examples[:]
 
         irregular_outputs = 0
         preds = []
