@@ -69,12 +69,14 @@ dataset_path = "./data/allsides_balanced_news_headlines-texts.csv"
 dataset = load_dataset("csv", data_files=dataset_path)
 dataset = dataset["train"].train_test_split(test_size=0.2)
 
+
 def concatenate_header_text(example):
     heading = example["heading"]
     text = example["text"]
     example["text"] = f"{heading}\n{text}"
     example["label"] = labels.index(example["bias_rating"])
     return example
+
 
 dataset = dataset.map(concatenate_header_text)
 print(dataset)
@@ -121,7 +123,7 @@ def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0
     model_inputs = tokenizer([text], return_tensors="pt").to(device)
 
     generated_ids = model.generate(
-        model_inputs.input_ids, max_new_tokens=16, temperature=temperature
+        model_inputs.input_ids, max_new_tokens=20, temperature=temperature
     )
     generated_ids = [
         output_ids[len(input_ids) :]
@@ -142,6 +144,7 @@ def construct_few_shot_string(data, example_set, few_shot_n, num_labels):
 
     return few_shot_string
 
+
 # ---- Inference
 results = {}
 model_outputs = {}
@@ -154,11 +157,15 @@ for few_shot_set in few_shot_examples:
     results[few_shot_set] = {}
     model_outputs[few_shot_set] = {}
 
-    for n in range(num_labels, 11, num_labels):  # 10 shot with a step size of num_labels
+    for n in range(
+        num_labels, 11, num_labels
+    ):  # 10 shot with a step size of num_labels
         print("-" * 10, f" Evaluating {n}-shot ", "-" * 10)
         results[few_shot_set][f"{n}_shot"] = {}
 
-        few_shots_string = construct_few_shot_string(few_shot_examples, few_shot_set, n, num_labels)
+        few_shots_string = construct_few_shot_string(
+            few_shot_examples, few_shot_set, n, num_labels
+        )
 
         irregular_outputs = 0
         preds = []
