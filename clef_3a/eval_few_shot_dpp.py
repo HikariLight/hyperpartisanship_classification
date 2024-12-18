@@ -22,7 +22,6 @@ parser = argparse.ArgumentParser(prog="DPP Few-Shot Eval script")
 parser.add_argument(
     "--model_name", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct"
 )
-parser.add_argument("--language", type=str, default="English")
 parser.add_argument("--use_quantization", action="store_true")
 parser.add_argument("--verbose", action="store_true")
 args = parser.parse_args()
@@ -117,7 +116,7 @@ def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0
     model_inputs = tokenizer([text], return_tensors="pt").to(device)
 
     generated_ids = model.generate(
-        model_inputs.input_ids, max_new_tokens=16, temperature=temperature
+        model_inputs.input_ids, max_new_tokens=20, temperature=temperature
     )
     generated_ids = [
         output_ids[len(input_ids) :]
