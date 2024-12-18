@@ -102,7 +102,7 @@ A saída consiste em apenas um inteiro com este formato: 'integer'. Se a manchet
 
 
 def parse_label(model_output):
-    match = re.search(r"\d+", model_output)
+    match = re.search(r"\b[0-1]\b", model_output)
     return int(match.group()) if match else None
 
 

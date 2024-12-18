@@ -114,7 +114,7 @@ The output consists in only one integer with this format: 'integer'. If the news
 
 
 def parse_label(model_output):
-    match = re.search(r"\d+", model_output)
+    match = re.search(r"\b[0-1]\b", model_output)
     return int(match.group()) if match else None
 
 
@@ -154,6 +154,7 @@ def construct_few_shot_string(data, example_set, few_shot_n, num_labels):
 
     return few_shot_string
 
+
 # ---- Inference
 results = {}
 model_outputs = {}
@@ -166,11 +167,15 @@ for few_shot_set in few_shot_examples:
     results[few_shot_set] = {}
     model_outputs[few_shot_set] = {}
 
-    for n in range(num_labels, 11, num_labels):  # 10 shot with a step size of num_labels
+    for n in range(
+        num_labels, 11, num_labels
+    ):  # 10 shot with a step size of num_labels
         print("-" * 10, f" Evaluating {n}-shot ", "-" * 10)
         results[few_shot_set][f"{n}_shot"] = {}
 
-        few_shots_string = construct_few_shot_string(few_shot_examples, few_shot_set, n, num_labels)
+        few_shots_string = construct_few_shot_string(
+            few_shot_examples, few_shot_set, n, num_labels
+        )
 
         irregular_outputs = 0
         preds = []

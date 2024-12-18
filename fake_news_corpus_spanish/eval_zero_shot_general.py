@@ -119,7 +119,7 @@ La salida de la etiqueta es solo un entero como en este ejemplo: 'integer'.
 
 
 def parse_label(model_output):
-    match = re.search(r"\d+", model_output)
+    match = re.search(r"\b[0-1]\b", model_output)
     return int(match.group()) if match else None
 
 
@@ -150,9 +150,6 @@ def generate(model, tokenizer, prompt, element, temperature=0.1):
 
 
 # ---- Inference
-results = {}
-model_outputs = {}
-
 results = {}
 model_outputs = {}
 

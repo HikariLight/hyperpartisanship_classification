@@ -118,7 +118,7 @@ Recuerde que una noticia falsa es un contenido engañoso estrechamente relaciona
 
 
 def parse_label(model_output):
-    match = re.search(r"\d+", model_output)
+    match = re.search(r"\b[0-1]\b", model_output)
     return int(match.group()) if match else None
 
 
