@@ -8,11 +8,10 @@ from datasets import load_dataset, Features, Value
 import argparse
 import torch
 import time
-import random
 import json
 import re
 import wandb
-from utils import compute_metrics, compute_fews_hot_nested_avg
+from utils import compute_metrics
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 set_seed(42)
@@ -32,7 +31,7 @@ print(args)
 main_run = wandb.init(
     project="CLEF2022task1C",
     entity="michelej-m",
-    name=f"{args.model_name.split('/')[1]}_few_shot_random",
+    name=f"[General] {args.model_name.split('/')[1]}_zero_shot",
 )
 main_run.log({"num_runs": 5})
 main_run.log({"language": args.language})
@@ -83,31 +82,34 @@ dataset = dataset.rename_column("tweet_text", "text")
 print(dataset)
 
 # ---- Inference utils
-prompt = """
-### Instruction:
+prompts = {
+    "english": {
+        "system": "You have received an instruction that describes a task and it has been combined with an input that provides more context. Respond as directed in the instruction.",
+        "user": "### Instruction:\nDetect if a tweet is harmful to society or not. The possible choices are: '0' if the article is neutral, '1' if the tweet is harmful.\nThe output of the label is only one integer like this example: 'integer'.\n\n###Input:\n{}\n\n###Response:",
+    },
+    "bulgarian": {
+        "system": "Получихте инструкция, която описва задача и тя е комбинирана с въвеждане, което предоставя повече контекст. Отговорете, както е указано в инструкцията.",
+        "user": "### Инструкция:\nОткрийте дали един туит е вреден за обществото или не. Възможните избори са: „0“, ако статията е неутрална, „1“, ако туитът е вреден.\nРезултатът от етикета е само едно цяло число като този пример: „цяло число“.\n\n###Вход:\n{}\n\n###Отговор:",
+    },
+    "arabic": {
+        "system": "لقد تلقيت تعليمات تصف مهمة وتم دمجها مع مدخلات توفر سياقًا أكثر. استجب وفقًا للتوجيهات الواردة في التعليمات.",
+        "user": "### التعليمات:\nاكتشف ما إذا كانت التغريدة ضارة بالمجتمع أم لا. الخيارات الممكنة هي: '0' إذا كانت المقالة محايدة، و'1' إذا كانت التغريدة ضارة.\nيكون ناتج العلامة عددًا صحيحًا واحدًا فقط مثل هذا المثال: 'integer'.\n\n###مثال:\n{}\n\n###الاستجابة:",
+    },
+}
 
-Given a news headline determine if it is real or fake news.
-The output consists in only one integer with this format: 'integer'. If the news headline is fake the output will be '1', if real '0'.
-
-###Input:
-{}
-
-### Response:
-"""
+prompt = prompts[args.language.lower()]["user"]
+system_prompt = prompts[args.language.lower()]["system"]
 
 
 def parse_label(model_output):
-    match = re.search(r"\d+", model_output)
+    match = re.search(r"\b[0-1]\b", model_output)
     return int(match.group()) if match else None
 
 
-def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0.1):
+def generate(model, tokenizer, prompt, element, temperature=0.1):
     messages = [
-        {
-            "role": "system",
-            "content": "You have received an instruction that describes a task and it has been combined with an input that provides more context. Respond as directed in the instruction.",
-        },
-        {"role": "user", "content": prompt.format(few_shot_examples, element)},
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": prompt.format(element)},
     ]
 
     text = tokenizer.apply_chat_template(
@@ -116,7 +118,7 @@ def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0
     model_inputs = tokenizer([text], return_tensors="pt").to(device)
 
     generated_ids = model.generate(
-        model_inputs.input_ids, max_new_tokens=16, temperature=temperature
+        model_inputs.input_ids, max_new_tokens=20, temperature=temperature
     )
     generated_ids = [
         output_ids[len(input_ids) :]
@@ -125,11 +127,9 @@ def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0
     output = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
     return output
 
+
 # ---- Inference
 dataset_labels = list(set(dataset["train"]["label"]))
-
-results = {}
-model_outputs = {}
 
 start_time = time.time()
 irregular_outputs = 0
@@ -146,9 +146,7 @@ for element in dataset["test"]:
         print(" > Irregular output:  ", pred)
 
         print("*" * 5, "Trying to resolve irregularity", "*" * 5)
-        for _ in range(
-            5
-        ):  # Try 5 times to resolve  the irregularity with higher temperature
+        while True:
             pred = generate(
                 model,
                 tokenizer,
@@ -167,48 +165,26 @@ for element in dataset["test"]:
     preds.append(parse_label(pred))
     refs.append(element["label"])
 
-evals = compute_metrics(preds, refs)
-evals["irregular_outputs"] = irregular_outputs
+results = compute_metrics(preds, refs)
+results["irregular_outputs"] = irregular_outputs
 model_outputs = {
     "ground_truth": refs,
     "model_predictions": preds,
 }
-print(json.dumps(evals, indent=4))
-
-args.verbose and print(json.dumps(results, indent=4))
-
-final_evals = compute_fews_hot_nested_avg(results)
-print(json.dumps(final_evals, indent=4))
+print(json.dumps(results, indent=4))
 
 print(f" > Inference execution time: {(time.time() - start_time):.2f}s")
+
+for metric in results:
+    main_run.log({f"avg_{metric}": results[metric]})
 
 # ---- Saving results/outputs to JSON files
 with open("results.json", "w") as json_file:
     json.dump(results, json_file, indent=4)
 main_run.save("results.json")
 
-with open("avg_results.json", "w") as json_file:
-    json.dump(final_evals, json_file, indent=4)
-main_run.save("avg_results.json")
-
 with open("model_outputs.json", "w") as json_file:
     json.dump(model_outputs, json_file, indent=4)
 main_run.save("model_outputs.json")
 
 main_run.finish()
-
-# ---- Logging average metrics as separate runs
-for few_shot_config in final_evals:
-    run = wandb.init(
-        project="CLEF2022task1C",
-        entity="michelej-m",
-        name=f"random_{few_shot_config}",
-        reinit=True,
-    )
-    run.log({"num_runs": 5})
-    run.log({"language": args.language})
-
-    for metric in final_evals[few_shot_config]:
-        run.log({f"avg_{metric}": final_evals[few_shot_config][metric]["score"]})
-
-    run.finish()

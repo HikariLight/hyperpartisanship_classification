@@ -32,7 +32,7 @@ print(args)
 main_run = wandb.init(
     project="CLEF2022task1C",
     entity="michelej-m",
-    name=f"{args.model_name.split('/')[1]}_few_shot_random",
+    name=f"[Random] {args.model_name.split('/')[1]}_few_shot",
 )
 main_run.log({"num_runs": 5})
 main_run.log({"language": args.language})
@@ -83,24 +83,27 @@ dataset = dataset.rename_column("tweet_text", "text")
 print(dataset)
 
 # ---- Inference utils
-prompt = """
-### Instruction:
+prompts = {
+    "english": {
+        "system": "You have received an instruction that describes a task and it has been combined with an input that provides more context. Respond as directed in the instruction.",
+        "user": """### Instruction:\nDetect if a tweet is harmful to society or not. The possible choices are: ’0’ if the article is neutral, ’1’ if the tweet is harmful.\nThe output of the label is only one integer like this example: ’integer’.\n\n###Example:\n{}\n\n###Input:\n{}\n\n###Response:\n""",
+    },
+    "bulgarian": {
+        "system": "Получихте инструкция, която описва задача и тя е комбинирана с въвеждане, което предоставя повече контекст. Отговорете, както е указано в инструкцията.",
+        "user": """### Инструкция:\nОткрийте дали един туит е вреден за обществото или не. Възможните избори са: „0“, ако статията е неутрална, „1“, ако туитът е вреден.\nРезултатът от етикета е само едно цяло число като този пример: „цяло число“.\n\n###Пример:\n{}\n\n###Вход:\n{}\n\n###Отговор:\n""",
+    },
+    "arabic": {
+        "system": "لقد تلقيت تعليمات تصف مهمة وتم دمجها مع مدخلات توفر سياقًا أكثر. استجب وفقًا للتوجيهات الواردة في التعليمات.",
+        "user": """### التعليمات:\nاكتشف ما إذا كانت التغريدة ضارة بالمجتمع أم لا. الخيارات الممكنة هي: '0' إذا كانت المقالة محايدة، و'1' إذا كانت التغريدة ضارة.\nيكون ناتج العلامة عددًا صحيحًا واحدًا فقط مثل هذا المثال: 'integer'.\n ###مثال: {}\n ###الإدخال: {}\n ###الاستجابة:\n""",
+    },
+}
 
-Given a news headline determine if it is real or fake news.
-The output consists in only one integer with this format: 'integer'. If the news headline is fake the output will be '1', if real '0'.
-
-### Examples
-{}
-
-###Input:
-{}
-
-### Response:
-"""
+prompt = prompts[args.language.lower()]["user"]
+system_prompt = prompts[args.language.lower()]["system"]
 
 
 def parse_label(model_output):
-    match = re.search(r"\d+", model_output)
+    match = re.search(r"\b[0-1]\b", model_output)
     return int(match.group()) if match else None
 
 
@@ -108,7 +111,7 @@ def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0
     messages = [
         {
             "role": "system",
-            "content": "You have received an instruction that describes a task and it has been combined with an input that provides more context. Respond as directed in the instruction.",
+            "content": system_prompt,
         },
         {"role": "user", "content": prompt.format(few_shot_examples, element)},
     ]
@@ -119,7 +122,7 @@ def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0
     model_inputs = tokenizer([text], return_tensors="pt").to(device)
 
     generated_ids = model.generate(
-        model_inputs.input_ids, max_new_tokens=16, temperature=temperature
+        model_inputs.input_ids, max_new_tokens=20, temperature=temperature
     )
     generated_ids = [
         output_ids[len(input_ids) :]
@@ -184,8 +187,11 @@ for seed in seeds:
         for element in dataset["test"]:
             pred = generate(model, tokenizer, prompt, few_shots_string, element["text"])
 
+            args.verbose and print("-" * 20)
             args.verbose and print(" > Pred: ", pred)
+            args.verbose and print(" > Parsed Pred: ", parse_label(pred))
             args.verbose and print(" > Ref: ", element["label"])
+            args.verbose and print("-" * 20)
 
             if parse_label(pred) is None:
                 print(" > Irregular output:  ", pred)
@@ -251,7 +257,7 @@ for few_shot_config in final_evals:
     run = wandb.init(
         project="CLEF2022task1C",
         entity="michelej-m",
-        name=f"random_{few_shot_config}",
+        name=f"[Random] {few_shot_config}",
         reinit=True,
     )
     run.log({"num_runs": 5})
