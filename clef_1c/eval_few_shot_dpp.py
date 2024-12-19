@@ -87,7 +87,9 @@ num_labels = len(dataset["train"].unique("label"))
 print(" > Label num: ", num_labels)
 
 # Loading DPP Few-Shot examples
-with open(f"./data/dpp_few_shot_examples_{args.language.lower()}.json") as json_file:
+with open(
+    f"./data/dpp_few_shot_examples_{args.language.lower()}_5_runs.json"
+) as json_file:
     few_shot_examples = json.load(json_file)
 
 # ---- Inference utils
