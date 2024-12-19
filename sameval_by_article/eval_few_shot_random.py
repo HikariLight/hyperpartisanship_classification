@@ -178,8 +178,9 @@ for seed in seeds:
 
             if parse_label(pred) is None:
                 print(" > Irregular output:  ", pred)
-
                 print("*" * 5, "Trying to resolve irregularity", "*" * 5)
+                attempts = 0
+                temperature = 0.7
                 while True:
                     pred = generate(
                         model,
@@ -187,13 +188,17 @@ for seed in seeds:
                         prompt,
                         few_shots_string,
                         element["text"],
-                        temperature=0.7,
+                        temperature=temperature,
                     )
+                    attempts += 1
                     print(" >> Attempted Pred: ", pred)
 
                     if parse_label(pred) is not None:
                         print(" >> Regularized output: ", pred)
                         break
+
+                    if attempts % 10 == 0:
+                        temperature = min(1.0, temperature + (temperature * 0.1))
                 irregular_outputs += 1
                 continue
 

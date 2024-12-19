@@ -63,14 +63,14 @@ model.generation_config.pad_token_id = tokenizer.pad_token_id
 print(model.generation_config)
 
 # ---- Dataset loading/Processing
-dataset = load_dataset(
-    "csv", data_files="./data/Fake.br-Corpus.tsv", delimiter="\t"
-)
+dataset = load_dataset("csv", data_files="./data/Fake.br-Corpus.tsv", delimiter="\t")
 dataset = dataset["train"].train_test_split(test_size=0.2, seed=42)
+
 
 def format_func(element):
     element["label"] = ["true", "fake"].index(element["label"])
     return element
+
 
 dataset = dataset.map(format_func)
 print(dataset)
@@ -185,8 +185,9 @@ for seed in seeds:
 
             if parse_label(pred) is None:
                 print(" > Irregular output:  ", pred)
-
                 print("*" * 5, "Trying to resolve irregularity", "*" * 5)
+                attempts = 0
+                temperature = 0.7
                 while True:
                     pred = generate(
                         model,
@@ -194,13 +195,17 @@ for seed in seeds:
                         prompt,
                         few_shots_string,
                         element["text"],
-                        temperature=0.7,
+                        temperature=temperature,
                     )
+                    attempts += 1
                     print(" >> Attempted Pred: ", pred)
 
                     if parse_label(pred) is not None:
                         print(" >> Regularized output: ", pred)
                         break
+
+                    if attempts % 10 == 0:
+                        temperature = min(1.0, temperature + (temperature * 0.1))
                 irregular_outputs += 1
                 continue
 
