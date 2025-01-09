@@ -159,6 +159,7 @@ for few_shot_set in few_shot_examples:
         )
 
         irregular_outputs = 0
+        skipped = 0
         preds = []
         refs = []
 
@@ -191,7 +192,16 @@ for few_shot_set in few_shot_examples:
 
                     if attempts % 10 == 0:
                         temperature = min(1.0, temperature + (temperature * 0.1))
+
+                    # Skipping the element if too many attempts
+                    if attempts == 50:
+                        skipped += 1
+                        break
+
                 irregular_outputs += 1
+                continue
+
+            if parse_label(pred) is None:
                 continue
 
             preds.append(parse_label(pred))
@@ -199,6 +209,7 @@ for few_shot_set in few_shot_examples:
 
         evals = compute_metrics(preds, refs)
         evals["irregular_outputs"] = irregular_outputs
+        evals["skipped"] = skipped
         results[few_shot_set][f"{n}_shot"] = evals
         model_outputs[few_shot_set] = {"ground_truth": refs, "model_predictions": preds}
         print(json.dumps(evals, indent=4))

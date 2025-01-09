@@ -199,6 +199,7 @@ for seed in seeds:
         run_settings[f"seed_{seed}"][f"{n}_shot"] = few_shot_examples[:]
 
         irregular_outputs = 0
+        skipped = 0
         preds = []
         refs = []
 
@@ -231,14 +232,25 @@ for seed in seeds:
 
                     if attempts % 10 == 0:
                         temperature = min(1.0, temperature + (temperature * 0.1))
+
+                    # Skipping the element if too many attempts
+                    if attempts == 50:
+                        skipped += 1
+                        break
+
                 irregular_outputs += 1
                 continue
+
+            if parse_label(pred) is None:
+                continue
+
 
             preds.append(parse_label(pred))
             refs.append(element["label"])
 
         evals = compute_metrics(preds, refs)
         evals["irregular_outputs"] = irregular_outputs
+        evals["skipped"] = skipped
         results[f"seed_{seed}"][f"{n}_shot"] = evals
         model_outputs[f"seed_{seed}"] = {
             "ground_truth": refs,
