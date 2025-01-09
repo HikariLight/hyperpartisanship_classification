@@ -1,0 +1,55 @@
+DatasetDict({
+    train: Dataset({
+        features: ['text', 'label'],
+        num_rows: 1999
+    })
+    test: Dataset({
+        features: ['text', 'label'],
+        num_rows: 199
+    })
+})
+ > Label num:  2
+-------------------- Stats Overall --------------------
+DatasetDict({
+    train: Dataset({
+        features: ['text', 'label'],
+        num_rows: 2198
+    })
+})
+---------- Ratios ----------
+{
+    "train": "{\"neutral\":0.5914467698,\"hyperpartisan\":0.4085532302}"
+}
+---------- Lengths ----------
+{
+    "train": {
+        "max": 63,
+        "min": 3,
+        "mean": 13.333030027297543,
+        "median": 13.0,
+        "std": 4.376722176055696
+    }
+}
+-------------------- Stats Per Split --------------------
+---------- Ratios ----------
+{
+    "train": "{\"neutral\":0.5892946473,\"hyperpartisan\":0.4107053527}",
+    "test": "{\"neutral\":0.6130653266,\"hyperpartisan\":0.3869346734}"
+}
+---------- Lengths ----------
+{
+    "train": {
+        "max": 63,
+        "min": 3,
+        "mean": 13.32416208104052,
+        "median": 13.0,
+        "std": 4.287092379022875
+    },
+    "test": {
+        "max": 55,
+        "min": 3,
+        "mean": 13.422110552763819,
+        "median": 13.0,
+        "std": 5.191093412947694
+    }
+}

@@ -1,0 +1,67 @@
+DatasetDict({
+    train: Dataset({
+        features: ['json_file_path', 'label', 'text'],
+        num_rows: 45066
+    })
+    validation: Dataset({
+        features: ['json_file_path', 'label', 'text'],
+        num_rows: 5008
+    })
+    test: Dataset({
+        features: ['json_file_path', 'label', 'text'],
+        num_rows: 5198
+    })
+})
+ > Label num:  3
+-------------------- Stats Overall --------------------
+DatasetDict({
+    train: Dataset({
+        features: ['json_file_path', 'label', 'text'],
+        num_rows: 55272
+    })
+})
+---------- Ratios ----------
+{
+    "train": "{\"right\":0.3644340715,\"center\":0.346016066,\"left\":0.2895498625}"
+}
+---------- Lengths ----------
+{
+    "train": {
+        "max": 371,
+        "min": 16,
+        "mean": 92.40559415255464,
+        "median": 110.0,
+        "std": 39.88846790402581
+    }
+}
+-------------------- Stats Per Split --------------------
+---------- Ratios ----------
+{
+    "train": "{\"right\":0.3892956996,\"center\":0.3428083256,\"left\":0.2678959748}",
+    "validation": "{\"right\":0.3891773163,\"center\":0.3428514377,\"left\":0.267971246}",
+    "test": "{\"left\":0.4980761831,\"center\":0.3768757214,\"right\":0.1250480954}"
+}
+---------- Lengths ----------
+{
+    "train": {
+        "max": 207,
+        "min": 16,
+        "mean": 90.47627923489992,
+        "median": 104.0,
+        "std": 40.07421197389508
+    },
+    "validation": {
+        "max": 184,
+        "min": 17,
+        "mean": 90.6773162939297,
+        "median": 107.0,
+        "std": 40.302130091625706
+    },
+    "test": {
+        "max": 371,
+        "min": 17,
+        "mean": 110.79761446710273,
+        "median": 123.0,
+        "std": 32.51068753273859
+    }
+}
