@@ -10,7 +10,7 @@ from peft import LoraConfig, get_peft_model
 from datasets import load_dataset
 import numpy as np
 import evaluate
-#import wandb
+import wandb
 import argparse
 import json
 from utils import compute_average_metrics, get_dataset_length_stats
@@ -31,12 +31,12 @@ print(args)
 
 
 DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-"""wandb.init(
-    project="Hyperpartisan_news_headlines",
+wandb.init(
+    project=args.dataset_name,
     entity="michelej-m",
     name=args.model_name.split("/")[1],
 )
-wandb.log({"num_runs": args.runs})"""
+wandb.log({"num_runs": args.runs})
 
 results = []
 
@@ -166,7 +166,7 @@ for _ in range(args.runs):
     print(json.dumps(run_results, indent=4))
 
 avg_results = compute_average_metrics(results)
-"""wandb.log(
+wandb.log(
     {
         "avg_accuracy": avg_results["eval_accuracy"]["score"],
         "avg_precision": avg_results["eval_precision"]["score"],
@@ -174,4 +174,4 @@ avg_results = compute_average_metrics(results)
         "avg_f1_score": avg_results["eval_f1-score"]["score"],
     }
 )
-print(json.dumps(avg_results, indent=4))"""
+print(json.dumps(avg_results, indent=4))
