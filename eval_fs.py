@@ -11,7 +11,7 @@ import time
 import random
 import json
 import re
-#import wandb
+import wandb
 from utils import compute_metrics, compute_fews_hot_nested_avg
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -37,15 +37,15 @@ args = parser.parse_args()
 
 print("Parsed Arguments:", args)
 
-"""
+
 main_run = wandb.init(
-    project="AllSides",
+    project=args.dataset_name,
     entity="michelej-m",
     name=f"[{args.method}] {args.model_name.split('/')[1]}_few_shot",
     reinit=True,
 )
 main_run.log({"num_runs": 5})
-"""
+
 
 # ---- Model/Tokenizer loading
 if args.use_quantization:
@@ -62,7 +62,7 @@ model = AutoModelForCausalLM.from_pretrained(
     args.model_name,
     device_map=device,
     torch_dtype=torch.bfloat16,
-    #attn_implementation="flash_attention_2",
+    attn_implementation="flash_attention_2",
     quantization_config=quantization_config,
 )
 
@@ -376,7 +376,7 @@ elif args.method == "fs_random":
     with open("run_settings.json", "w") as json_file:
         json.dump(run_settings, json_file, indent=4)
     
-    """
+    
     main_run.save("results.json")
     main_run.save("avg_results.json")
     main_run.save("model_outputs.json")
@@ -398,4 +398,4 @@ elif args.method == "fs_random":
             run.log({f"avg_{metric}": final_evals[few_shot_config][metric]["score"]})
 
         run.finish()
-    """
+    
