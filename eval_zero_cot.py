@@ -10,7 +10,7 @@ import torch
 import time
 import json
 import re
-#import wandb
+import wandb
 from utils import compute_metrics
 import os
 
@@ -34,12 +34,12 @@ args = parser.parse_args()
 print(args)
 
 
-"""main_run = wandb.init(
+main_run = wandb.init(
     project=args.dataset_name,
     entity="michelej-m",
     name=f"{args.model_name.split('/')[1]}_{args.configuration}",
 )
-main_run.log({"num_runs": 5})"""
+main_run.log({"num_runs": 5})
 
 # ---- Model/Tokenizer loading
 if args.use_quantization:
@@ -57,7 +57,7 @@ model = AutoModelForCausalLM.from_pretrained(
     args.model_name,
     device_map=device,
     torch_dtype=torch.bfloat16,
-    #attn_implementation="flash_attention_2",
+    attn_implementation="flash_attention_2",
     quantization_config=quantization_config,
 )
 
@@ -181,7 +181,7 @@ model_outputs = {
 
 print(json.dumps(results, indent=4))
 
-"""for metric in results:
+for metric in results:
     main_run.log({f"avg_{metric}": results[metric]})
 
 print(f" > Inference execution time: {(time.time() - start_time):.2f}s")
@@ -195,5 +195,5 @@ with open("model_outputs.json", "w") as json_file:
     json.dump(model_outputs, json_file, indent=4)
 main_run.save("model_outputs.json")
 
-main_run.finish()"""
+main_run.finish()
 
