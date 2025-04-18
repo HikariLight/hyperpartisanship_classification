@@ -46,7 +46,7 @@ def prepare_clef1c(dataset_path, language):
 ### ALL-SIDES ###
 def prepare_allsides(dataset_path):
     labels = ["left", "center", "right"]
-    dataset = load_dataset("csv", data_files=dataset_path)
+    dataset = load_dataset("csv", data_files=f"{dataset_path}/{args.dataset_name}/allsides_balanced_news_headlines-texts.csv")
     dataset = dataset["train"].train_test_split(test_size=0.2)
 
     def concatenate_header_text(example):

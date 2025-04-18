@@ -30,6 +30,7 @@ parser.add_argument("--verbose", action="store_true")
 parser.add_argument("--dataset_name", type=str, default="")
 parser.add_argument("--configuration", type=str, default="", choices=['cot', 'zero_shot_generic', 'zero_shot_specific', 'codebook'])
 parser.add_argument("--language", type=str, default="", help="Language for prompts ('bg', 'en', 'pt')")
+parser.add_argument("--task_labels", type=str, default="", choices=['hp', 'pl', 'ht', 'fn'])
 args = parser.parse_args()
 print(args)
 
@@ -57,7 +58,7 @@ model = AutoModelForCausalLM.from_pretrained(
     args.model_name,
     device_map=device,
     torch_dtype=torch.bfloat16,
-    attn_implementation="flash_attention_2",
+    #attn_implementation="flash_attention_2",
     quantization_config=quantization_config,
 )
 
@@ -101,9 +102,49 @@ print(f"Using prompts: {prompts}")
 prompt = f'"""\n{prompts}\n"""'
 
 def parse_label(model_output):
-    match = re.search(r"\b[0-1]\b", model_output)
-    return int(match.group()) if match else None
-
+    if args.task_labels == 'hp':
+        match = re.search(r'\b(hyperpartisan|neutral)\b', model_output.lower())
+        
+        if match:
+            found_text = match.group()
+            if found_text == "zero":
+                return 0
+            elif found_text == "one":
+                return 1
+            
+    if args.task_labels == 'fn':
+        match = re.search(r'\b(fake|true)\b', model_output.lower())
+        
+        if match:
+            found_text = match.group()
+            if found_text == "true":
+                return 0
+            elif found_text == "fake":
+                return 1
+            
+    if args.task_labels == 'ht':
+        match = re.search(r"(harmful|not)", model_output.lower())
+        
+        if match:
+            found_text = match.group()
+            if found_text == "not":
+                return 0
+            elif found_text == "harmful":
+                return 1
+                
+    if args.task_labels == 'pl':
+        match = re.search(r'\b(left|center|right)\b', model_output.lower())
+        
+        if match:
+            found_text = match.group()
+            if found_text == "center":
+                return 1
+            elif found_text == "left":
+                return 0
+            elif found_text == "right":
+                return 2
+    
+    return None
 
 def generate(model, tokenizer, prompt, element, temperature=0.1):
     messages = [
@@ -120,9 +161,15 @@ def generate(model, tokenizer, prompt, element, temperature=0.1):
 
     model_inputs = tokenizer([text], return_tensors="pt").to(device)
 
-    generated_ids = model.generate(
-        model_inputs.input_ids, max_new_tokens=20, temperature=temperature
+    if args.configuration=="cot":
+        generated_ids = model.generate(
+            model_inputs.input_ids, max_new_tokens=512, temperature=temperature
+        )
+    else: 
+        generated_ids = model.generate(
+            model_inputs.input_ids, max_new_tokens=20, temperature=temperature
     )
+    
     generated_ids = [
         output_ids[len(input_ids) :]
         for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
@@ -134,17 +181,18 @@ def generate(model, tokenizer, prompt, element, temperature=0.1):
 results = {}
 model_outputs = {}
 
-results = {}
-model_outputs = {}
-
 irregular_outputs = 0
 preds = []
 refs = []
 
 start_time = time.time()
 for idx, element in enumerate(dataset["test"]):
+    print(idx)
+    if idx >= 10:
+        break
     pred = generate(model, tokenizer, prompt, element["text"])
     print(pred)
+    
     args.verbose and print(" > Pred: ", pred)
     args.verbose and print(" > Ref: ", element["label"])
 
@@ -152,7 +200,10 @@ for idx, element in enumerate(dataset["test"]):
         print(" > Irregular output:  ", pred)
         print(f" > Index: {idx}")
         print("*" * 5, "Trying to resolve irregularity", "*" * 5)
-        while True:
+        max_retries = 5
+        retry_count = 0
+
+        while retry_count < max_retries:
             pred = generate(
                 model,
                 tokenizer,
@@ -160,14 +211,18 @@ for idx, element in enumerate(dataset["test"]):
                 element["text"],
                 temperature=0.7,
             )
-            print(" >> Attempted Pred: ", pred)
-
+            print(f" >> Attempted Pred: {pred}")
+            
             if parse_label(pred) is not None:
                 print(" >> Regularized output: ", pred)
                 break
+            
+            retry_count += 1
 
-        irregular_outputs += 1
-        continue
+        if retry_count == max_retries:
+            print(" >> Failed to get valid prediction after max retries")
+            irregular_outputs += 1
+            continue
 
     preds.append(parse_label(pred))
     refs.append(element["label"])
@@ -196,4 +251,3 @@ with open("model_outputs.json", "w") as json_file:
 main_run.save("model_outputs.json")
 
 main_run.finish()
-

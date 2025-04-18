@@ -39,7 +39,7 @@ print("Parsed Arguments:", args)
 
 
 main_run = wandb.init(
-    project=args.dataset_name,
+    project="AllSides",
     entity="michelej-m",
     name=f"[{args.method}] {args.model_name.split('/')[1]}_few_shot",
     reinit=True,
@@ -62,7 +62,7 @@ model = AutoModelForCausalLM.from_pretrained(
     args.model_name,
     device_map=device,
     torch_dtype=torch.bfloat16,
-    attn_implementation="flash_attention_2",
+    #attn_implementation="flash_attention_2",
     quantization_config=quantization_config,
 )
 
@@ -75,10 +75,7 @@ model.generation_config.pad_token_id = tokenizer.pad_token_id
 print(model.generation_config)
 
 # ---- Dataset loading/Processing
-"""if args.dataset_name == "clef_1c":
-    dataset_path_train = f"./processed_data/train_{args.language}.json"
-    dataset_path_test = f"./processed_data/test_{args.language}.json"
-else:"""
+
 dataset_path_train = f"./processed_data/train.json"
 dataset_path_test = f"./processed_data/test.json"
 
@@ -112,7 +109,7 @@ if args.method == "fs_dpp":
             few_shot_examples = json.load(json_file)
 
 def parse_label(model_output):
-    match = re.search(r"\b[0-2]\b", model_output)
+    match = re.search(r"\b[0-1]\b", model_output)
     return int(match.group()) if match else None
 
 def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0.1):
@@ -337,7 +334,7 @@ if args.method == "fs_dpp":
     with open("model_outputs.json", "w") as json_file:
         json.dump(model_outputs, json_file, indent=4)
     
-    """
+    
     main_run.save("results.json")
     main_run.save("avg_results.json")
     main_run.save("model_outputs.json")
@@ -358,7 +355,7 @@ if args.method == "fs_dpp":
             run.log({f"avg_{metric}": final_evals[few_shot_config][metric]["score"]})
 
         run.finish()
-    """
+    
     
 elif args.method == "fs_random":
     results, model_outputs, final_evals, run_settings = run_random_evaluation()

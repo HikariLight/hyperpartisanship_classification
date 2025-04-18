@@ -5,6 +5,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
     DataCollatorWithPadding,
+    BitsAndBytesConfig,
 )
 from peft import LoraConfig, get_peft_model
 from datasets import DatasetDict, Dataset, load_dataset
@@ -17,40 +18,71 @@ import json
 from utils import compute_average_metrics, get_dataset_length_stats
 
 parser = argparse.ArgumentParser(prog="Sequence Classification Training Script")
-parser.add_argument("--model_name", type=str, default="meta-llama/Llama-3.1-8B")
+parser.add_argument("--model_name", type=str, default="meta-llama/Llama-3.2-1B")
 parser.add_argument("--lr", type=float, default=1e-4)
 parser.add_argument("--epochs", type=int, default=5)
 parser.add_argument("--runs", type=int, default=1)
 parser.add_argument("--batch_size", type=int, default=8)
 parser.add_argument("--save", action="store_true")
+parser.add_argument("--use_quantization", action="store_true")
 parser.add_argument("--dataset_name", type=str, default="")
-parser.add_argument("--configuration", type=str, default="")
-parser.add_argument("--language", type=str, default="", help="Language for prompts ('bg', 'en', 'pt')")
+parser.add_argument(
+    "--language", type=str, default="", help="Language for prompts ('bg', 'en', 'pt')"
+)
 args = parser.parse_args()
 print(args)
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 wandb.init(
-    project="FakeNewsCorpusSpanish",
+    project=args.dataset_name,
     entity="michelej-m",
     name=args.model_name.split("/")[1],
 )
 wandb.log({"num_runs": args.runs})
+
+## --- Tokenizer
+tokenizer = AutoTokenizer.from_pretrained(args.model_name, add_prefix_space=True)
+tokenizer.pad_token_id = tokenizer.eos_token_id
+tokenizer.pad_token = tokenizer.eos_token
+
+# # ---- Dataset loading + Processing
+max_len = 512
+
+dataset_path_train = f"./processed_data/train.json"
+dataset_path_test = f"./processed_data/test.json"
+
+
+# Load the dataset with explicit splits
+dataset = load_dataset(
+    "json", data_files={"train": dataset_path_train, "test": dataset_path_test}
+)
+print(dataset["train"][0])
+num_labels = len(dataset["train"].unique("label"))
+print(" > Label num: ", num_labels)
+
 results = []
 
 for _ in range(args.runs):
     # ---- Model / Tokenizer loading
     model_name = args.model_name
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, add_prefix_space=True)
-    tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenizer.pad_token = tokenizer.eos_token
+    if args.use_quantization:
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+    else:
+        quantization_config = None
 
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name,
         device_map=device,
-        num_labels=2,
+        num_labels=num_labels,
+        quantization_config=quantization_config,
     )
     model.config.use_cache = False
     model.config.pad_token_id = tokenizer.pad_token_id
@@ -69,65 +101,17 @@ for _ in range(args.runs):
     )
     model = get_peft_model(model, lora_config)
 
-    # # ---- Dataset loading + Processing
-    max_len = 512
-
-    # ---- Dataset loading/Processing
-    if args.dataset_name == "clef_1c":
-        dataset_path_train = f"./processed_data/train_{args.language}.json"
-        dataset_path_test = f"./processed_data/test_{args.language}.json"
-    else:
-        dataset_path_train = f"./processed_data/train.json"
-        dataset_path_test = f"./processed_data/test.json"
-
-    # Load the dataset with explicit splits
-    dataset = load_dataset("json", data_files={"train": dataset_path_train, "test": dataset_path_test})
-    print(dataset['train'][0])
-    num_labels = len(dataset["train"].unique("label"))
-    print(" > Label num: ", num_labels)
-
-#    def format_func(element):
-#        labels = ["Fake", "True"]
-#        bool_labels = [False, True]
-#
-#        element["text"] = f"{element['Headline']}\n{element['Text']}"
-#
-#        if isinstance(element["Category"], str):
-#            element["label"] = labels.index(element["Category"])
-#
-#        if isinstance(element["Category"], bool):
-#            element["label"] = bool_labels.index(element["Category"])
-#
-#        return element
-
     def tokenization_func(examples):
         return tokenizer(examples["text"], truncation=True, max_length=max_len)
 
-    #dataset = dataset.map(format_func)
-    print(dataset)
     tokenized_dataset = dataset.map(tokenization_func)
-    """    
-    tokenized_dataset = tokenized_dataset.remove_columns(
-        [
-            "Id",
-            "Category",
-            "Topic",
-            "Source",
-            "Headline",
-            "Text",
-            "Link",
-            "text",
-        ]
+    tokenized_dataset = tokenized_dataset.select_columns(
+        ["input_ids", "attention_mask", "label"]
     )
-    """
-    
-    length_stats = get_dataset_length_stats(tokenizer, dataset)
-    print(json.dumps(length_stats, indent=4))
-
     print(tokenized_dataset)
 
-    if args.configuration != "ft_decoder":
-        raise ValueError("Invalid configuration. Please use 'ft_decoder' as the configuration name. REMEMBER YOU ARE USING ft_decoder HERE!!!")
+    length_stats = get_dataset_length_stats(tokenizer, dataset)
+    print(json.dumps(length_stats, indent=4))
 
     # ------Training prep
     # -- Hyperparameters

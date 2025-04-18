@@ -5,6 +5,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
     DataCollatorWithPadding,
+    BitsAndBytesConfig
 )
 from peft import LoraConfig, get_peft_model
 from datasets import load_dataset
@@ -23,6 +24,7 @@ parser.add_argument("--epochs", type=int, default=5)
 parser.add_argument("--runs", type=int, default=1)
 parser.add_argument("--batch_size", type=int, default=8)
 parser.add_argument("--save", action="store_true")
+parser.add_argument("--use_quantization", action="store_true")
 parser.add_argument("--dataset_name", type=str, default="")
 parser.add_argument("--configuration", type=str, default="")
 parser.add_argument("--language", type=str, default="", help="Language for prompts ('bg', 'en', 'pt')")
@@ -38,20 +40,46 @@ wandb.init(
 )
 wandb.log({"num_runs": args.runs})
 
+# ---- Model / Tokenizer loading
+model_name = args.model_name
+
+tokenizer = AutoTokenizer.from_pretrained(model_name, add_prefix_space=True)
+tokenizer.pad_token_id = tokenizer.eos_token_id
+tokenizer.pad_token = tokenizer.eos_token
+
+# # ---- Dataset loading + Processing
+max_len = 512
+
+# ---- Dataset loading/Processing
+
+dataset_path_train = f"./processed_data/train.json"
+dataset_path_test = f"./processed_data/test.json"
+
+# Load the dataset with explicit splits
+dataset = load_dataset("json", data_files={"train": dataset_path_train, "test": dataset_path_test})
+print(dataset['train'][0])
+num_labels = len(dataset["train"].unique("label"))
+print(" > Label num: ", num_labels)
+
 results = []
 
 for _ in range(args.runs):
-    # ---- Model / Tokenizer loading
-    model_name = args.model_name
 
-    tokenizer = AutoTokenizer.from_pretrained(model_name, add_prefix_space=True)
-    tokenizer.pad_token_id = tokenizer.eos_token_id
-    tokenizer.pad_token = tokenizer.eos_token
+    if args.use_quantization:
+
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            )
+    else:
+        quantization_config=None
 
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name,
         device_map=DEVICE,
-        num_labels=2,
+        num_labels=num_labels,
     )
     model.config.use_cache = False
     model.config.pad_token_id = tokenizer.pad_token_id
@@ -62,38 +90,21 @@ for _ in range(args.runs):
         lora_alpha=16,
         lora_dropout=0.1,
         bias="none",
-        task_type="SEQ_CLS",
-        # target_modules=["query", "value"],
-        # target_modules=["query_proj", "value_proj"],
+        task_type="SEQ_CLS"
     )
     model = get_peft_model(model, lora_config)
 
-    # # ---- Dataset loading + Processing
-    max_len = 512
 
-    # ---- Dataset loading/Processing
-    if args.dataset_name == "clef_1c":
-        dataset_path_train = f"./processed_data/train_{args.language}.json"
-        dataset_path_test = f"./processed_data/test_{args.language}.json"
-    else:
-        dataset_path_train = f"./processed_data/train.json"
-        dataset_path_test = f"./processed_data/test.json"
-
-    # Load the dataset with explicit splits
-    dataset = load_dataset("json", data_files={"train": dataset_path_train, "test": dataset_path_test})
-    print(dataset['train'][0])
-    num_labels = len(dataset["train"].unique("label"))
-    print(" > Label num: ", num_labels)
 
     def tokenization_func(examples):
         return tokenizer(examples["text"], truncation=True, max_length=max_len)
 
     tokenized_dataset = dataset.map(tokenization_func)
-
+    tokenized_dataset = tokenized_dataset.select_columns(
+        ["input_ids", "attention_mask", "label"]
+        )
     length_stats = get_dataset_length_stats(tokenizer, dataset)
     print(json.dumps(length_stats, indent=4))
-    if args.configuration != "ft_encoder":
-        raise ValueError("Invalid configuration. Please use 'ft_encoder' as the configuration name. REMEMBER YOU ARE USING ft_encoder HERE!!!")
 
     # ------Training prep
     # -- Hyperparameters
@@ -143,7 +154,7 @@ for _ in range(args.runs):
         num_train_epochs=num_epochs,
         weight_decay=0.001,
         eval_strategy="epoch",
-        #report_to="wandb",
+        report_to="wandb",
         logging_steps=5,
         fp16=True,
         gradient_checkpointing=False,
