@@ -14,25 +14,30 @@ import re
 import wandb
 from utils import compute_metrics, compute_fews_hot_nested_avg
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 set_seed(42)
 
 # --- Params parsing
 parser = argparse.ArgumentParser(prog="Few-Shot Evaluation Script")
 parser.add_argument(
-    "--model_name", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct"
+    "--model_name", type=str, default="meta-llama/Meta-Llama-3.1-8B-Instruct"
 )
 parser.add_argument("--use_quantization", action="store_true")
 parser.add_argument("--verbose", action="store_true")
 parser.add_argument("--dataset_name", type=str, default="")
 parser.add_argument(
-    "--method", 
-    type=str, 
+    "--method",
+    type=str,
     default="fs_dpp",
     choices=["fs_dpp", "fs_random"],
-    help="Evaluation method: fs_dpp (DPP few-shot) or fs_random (random few-shot)"
+    help="Evaluation method: fs_dpp (DPP few-shot) or fs_random (random few-shot)",
 )
-parser.add_argument("--language", type=str, default="", help="Language for prompts ('bg', 'en', 'pt')")
+parser.add_argument(
+    "--language", type=str, default="", help="Language for prompts ('bg', 'en', 'pt')"
+)
+parser.add_argument(
+    "--task_labels", type=str, default="", choices=["hp", "pl", "ht", "fn"]
+)
 args = parser.parse_args()
 
 print("Parsed Arguments:", args)
@@ -62,7 +67,7 @@ model = AutoModelForCausalLM.from_pretrained(
     args.model_name,
     device_map=device,
     torch_dtype=torch.bfloat16,
-    #attn_implementation="flash_attention_2",
+    # attn_implementation="flash_attention_2",
     quantization_config=quantization_config,
 )
 
@@ -76,19 +81,23 @@ print(model.generation_config)
 
 # ---- Dataset loading/Processing
 
-dataset_path_train = f"./processed_data/train.json"
-dataset_path_test = f"./processed_data/test.json"
+dataset = load_dataset(
+    "json",
+    data_files={
+        "train": "./processed_data/train.json",
+        "test": "./processed_data/test.json",
+    },
+)
+print(dataset)
+# print(dataset["train"][0])
 
-# Load the dataset with explicit splits
-dataset = load_dataset("json", data_files={"train": dataset_path_train, "test": dataset_path_test})
-print(dataset['train'][0])
 num_labels = len(dataset["train"].unique("label"))
 print(" > Label num: ", num_labels)
 
 # Load prompts for few-shot evaluation
 prompt_path = "./prompts_ICWSM.json"
 
-with open(prompt_path, 'r', encoding='utf-8') as f:
+with open(prompt_path, "r", encoding="utf-8") as f:
     prompts = json.load(f)
 
 if args.dataset_name == "clef_1c":
@@ -102,15 +111,62 @@ prompt = f'"""\n{prompts}\n"""'
 # Load DPP few-shot examples if using the DPP method
 if args.method == "fs_dpp":
     if args.dataset_name == "clef_1c":
-        with open(f"./data/{args.dataset_name}/{args.dataset_name}_{args.language}_5_runs.json") as json_file:
+        with open(
+            f"./data/{args.dataset_name}/{args.dataset_name}_{args.language}_5_runs.json"
+        ) as json_file:
             few_shot_examples = json.load(json_file)
     else:
-        with open(f"./data/{args.dataset_name}/{args.dataset_name}_5_runs.json") as json_file:
+        with open(
+            f"./data/{args.dataset_name}/{args.dataset_name}_5_runs.json"
+        ) as json_file:
             few_shot_examples = json.load(json_file)
 
+
 def parse_label(model_output):
-    match = re.search(r"\b[0-1]\b", model_output)
-    return int(match.group()) if match else None
+    if args.task_labels == "hp":
+        match = re.search(r"\b(hyperpartisan|neutral)\b", model_output.lower())
+
+        if match:
+            found_text = match.group()
+            if found_text == "zero":
+                return 0
+            elif found_text == "one":
+                return 1
+
+    if args.task_labels == "fn":
+        match = re.search(r"\b(fake|true)\b", model_output.lower())
+
+        if match:
+            found_text = match.group()
+            if found_text == "true":
+                return 0
+            elif found_text == "fake":
+                return 1
+
+    if args.task_labels == "ht":
+        match = re.search(r"(harmful|not)", model_output.lower())
+
+        if match:
+            found_text = match.group()
+            if found_text == "not":
+                return 0
+            elif found_text == "harmful":
+                return 1
+
+    if args.task_labels == "pl":
+        match = re.search(r"\b(left|center|right)\b", model_output.lower())
+
+        if match:
+            found_text = match.group()
+            if found_text == "center":
+                return 1
+            elif found_text == "left":
+                return 0
+            elif found_text == "right":
+                return 2
+
+    return None
+
 
 def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0.1):
     messages = [
@@ -127,7 +183,7 @@ def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0
     model_inputs = tokenizer([text], return_tensors="pt").to(device)
 
     generated_ids = model.generate(
-        model_inputs.input_ids, max_new_tokens=20, temperature=temperature
+        model_inputs.input_ids, max_new_tokens=512, temperature=temperature
     )
     generated_ids = [
         output_ids[len(input_ids) :]
@@ -135,6 +191,7 @@ def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0
     ]
     output = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
     return output
+
 
 def construct_few_shot_string_dpp(data, example_set, few_shot_n, num_labels):
     few_shot_string = ""
@@ -147,6 +204,7 @@ def construct_few_shot_string_dpp(data, example_set, few_shot_n, num_labels):
 
     return few_shot_string
 
+
 def construct_few_shot_string_random(few_shot_examples):
     few_shot_string = ""
 
@@ -154,6 +212,7 @@ def construct_few_shot_string_random(few_shot_examples):
         few_shot_string += f"{item['text']},{item['label']}\n"
 
     return few_shot_string
+
 
 # ---- Run DPP Few-Shot evaluation
 def run_dpp_evaluation():
@@ -182,7 +241,9 @@ def run_dpp_evaluation():
             refs = []
 
             for element in dataset["test"]:
-                pred = generate(model, tokenizer, prompt, few_shots_string, element["text"])
+                pred = generate(
+                    model, tokenizer, prompt, few_shots_string, element["text"]
+                )
 
                 args.verbose and print(" > Pred: ", pred)
                 args.verbose and print(" > Ref: ", element["label"])
@@ -214,7 +275,10 @@ def run_dpp_evaluation():
             evals = compute_metrics(preds, refs)
             evals["irregular_outputs"] = irregular_outputs
             results[few_shot_set][f"{n}_shot"] = evals
-            model_outputs[few_shot_set] = {"ground_truth": refs, "model_predictions": preds}
+            model_outputs[few_shot_set] = {
+                "ground_truth": refs,
+                "model_predictions": preds,
+            }
             print(json.dumps(evals, indent=4))
 
         args.verbose and print(json.dumps(results, indent=4))
@@ -223,8 +287,9 @@ def run_dpp_evaluation():
     print(json.dumps(final_evals, indent=4))
 
     print(f" > Inference execution time: {(time.time() - start_time):.2f}s")
-    
+
     return results, model_outputs, final_evals
+
 
 # ---- Run Random Few-Shot evaluation
 def run_random_evaluation():
@@ -244,7 +309,7 @@ def run_random_evaluation():
         run_settings[f"seed_{seed}"] = {}
 
         few_shot_examples = []
-        
+
         # Get all unique labels
         dataset_labels = list(set(example["label"] for example in dataset["train"]))
 
@@ -273,9 +338,12 @@ def run_random_evaluation():
             refs = []
 
             for element in dataset["test"]:
-                pred = generate(model, tokenizer, prompt, few_shots_string, element["text"])
+                pred = generate(
+                    model, tokenizer, prompt, few_shots_string, element["text"]
+                )
 
                 args.verbose and print(" > Pred: ", pred)
+                args.verbose and print(" > Pred: ", parse_label(pred))
                 args.verbose and print(" > Ref: ", element["label"])
 
                 if parse_label(pred) is None:
@@ -317,13 +385,14 @@ def run_random_evaluation():
     print(json.dumps(final_evals, indent=4))
 
     print(f" > Inference execution time: {(time.time() - start_time):.2f}s")
-    
+
     return results, model_outputs, final_evals, run_settings
+
 
 # ---- Run the selected evaluation method
 if args.method == "fs_dpp":
     results, model_outputs, final_evals = run_dpp_evaluation()
-    
+
     # ---- Saving results/outputs to JSON files
     with open("results.json", "w") as json_file:
         json.dump(results, json_file, indent=4)
@@ -333,8 +402,7 @@ if args.method == "fs_dpp":
 
     with open("model_outputs.json", "w") as json_file:
         json.dump(model_outputs, json_file, indent=4)
-    
-    
+
     main_run.save("results.json")
     main_run.save("avg_results.json")
     main_run.save("model_outputs.json")
@@ -355,32 +423,31 @@ if args.method == "fs_dpp":
             run.log({f"avg_{metric}": final_evals[few_shot_config][metric]["score"]})
 
         run.finish()
-    
-    
+
+
 elif args.method == "fs_random":
     results, model_outputs, final_evals, run_settings = run_random_evaluation()
-    
+
     # ---- Saving results/outputs to JSON files
     with open("results.json", "w") as json_file:
         json.dump(results, json_file, indent=4)
-    
+
     with open("avg_results.json", "w") as json_file:
         json.dump(final_evals, json_file, indent=4)
-    
+
     with open("model_outputs.json", "w") as json_file:
         json.dump(model_outputs, json_file, indent=4)
-    
+
     with open("run_settings.json", "w") as json_file:
         json.dump(run_settings, json_file, indent=4)
-    
-    
+
     main_run.save("results.json")
     main_run.save("avg_results.json")
     main_run.save("model_outputs.json")
     main_run.save("run_settings.json")
-    
+
     main_run.finish()
-    
+
     # ---- Logging average metrics as separate runs
     for few_shot_config in final_evals:
         run = wandb.init(
@@ -395,4 +462,3 @@ elif args.method == "fs_random":
             run.log({f"avg_{metric}": final_evals[few_shot_config][metric]["score"]})
 
         run.finish()
-    

@@ -15,8 +15,7 @@ from utils import compute_metrics
 import os
 
 
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 set_seed(42)
 
 
@@ -28,9 +27,18 @@ parser.add_argument(
 parser.add_argument("--use_quantization", action="store_true")
 parser.add_argument("--verbose", action="store_true")
 parser.add_argument("--dataset_name", type=str, default="")
-parser.add_argument("--configuration", type=str, default="", choices=['cot', 'zero_shot_generic', 'zero_shot_specific', 'codebook'])
-parser.add_argument("--language", type=str, default="", help="Language for prompts ('bg', 'en', 'pt')")
-parser.add_argument("--task_labels", type=str, default="", choices=['hp', 'pl', 'ht', 'fn'])
+parser.add_argument(
+    "--configuration",
+    type=str,
+    default="",
+    choices=["cot", "zero_shot_generic", "zero_shot_specific", "codebook"],
+)
+parser.add_argument(
+    "--language", type=str, default="", help="Language for prompts ('bg', 'en', 'pt')"
+)
+parser.add_argument(
+    "--task_labels", type=str, default="", choices=["hp", "pl", "ht", "fn"]
+)
 args = parser.parse_args()
 print(args)
 
@@ -58,7 +66,7 @@ model = AutoModelForCausalLM.from_pretrained(
     args.model_name,
     device_map=device,
     torch_dtype=torch.bfloat16,
-    #attn_implementation="flash_attention_2",
+    # attn_implementation="flash_attention_2",
     quantization_config=quantization_config,
 )
 
@@ -82,15 +90,17 @@ else:
     dataset_path_test = os.path.join(current_dir, "processed_data", "test.json")
 
 # Load the dataset with explicit splits
-dataset = load_dataset("json", data_files={"train": dataset_path_train, "test": dataset_path_test})
-print(dataset['train'][0])
+dataset = load_dataset(
+    "json", data_files={"train": dataset_path_train, "test": dataset_path_test}
+)
+print(dataset["train"][0])
 num_labels = len(dataset["train"].unique("label"))
 print(" > Label num: ", num_labels)
 
-#Load the prompts with specific config and language
+# Load the prompts with specific config and language
 
 prompt_path = "./prompts_ICWSM.json"
-with open(prompt_path, 'r', encoding='utf-8') as f:
+with open(prompt_path, "r", encoding="utf-8") as f:
     prompts = json.load(f)
 
 if args.dataset_name == "clef_1c":
@@ -101,40 +111,41 @@ else:
 print(f"Using prompts: {prompts}")
 prompt = f'"""\n{prompts}\n"""'
 
+
 def parse_label(model_output):
-    if args.task_labels == 'hp':
-        match = re.search(r'\b(hyperpartisan|neutral)\b', model_output.lower())
-        
+    if args.task_labels == "hp":
+        match = re.search(r"\b(hyperpartisan|neutral)\b", model_output.lower())
+
         if match:
             found_text = match.group()
             if found_text == "zero":
                 return 0
             elif found_text == "one":
                 return 1
-            
-    if args.task_labels == 'fn':
-        match = re.search(r'\b(fake|true)\b', model_output.lower())
-        
+
+    if args.task_labels == "fn":
+        match = re.search(r"\b(fake|true)\b", model_output.lower())
+
         if match:
             found_text = match.group()
             if found_text == "true":
                 return 0
             elif found_text == "fake":
                 return 1
-            
-    if args.task_labels == 'ht':
+
+    if args.task_labels == "ht":
         match = re.search(r"(harmful|not)", model_output.lower())
-        
+
         if match:
             found_text = match.group()
             if found_text == "not":
                 return 0
             elif found_text == "harmful":
                 return 1
-                
-    if args.task_labels == 'pl':
-        match = re.search(r'\b(left|center|right)\b', model_output.lower())
-        
+
+    if args.task_labels == "pl":
+        match = re.search(r"\b(left|center|right)\b", model_output.lower())
+
         if match:
             found_text = match.group()
             if found_text == "center":
@@ -143,8 +154,9 @@ def parse_label(model_output):
                 return 0
             elif found_text == "right":
                 return 2
-    
+
     return None
+
 
 def generate(model, tokenizer, prompt, element, temperature=0.1):
     messages = [
@@ -161,21 +173,22 @@ def generate(model, tokenizer, prompt, element, temperature=0.1):
 
     model_inputs = tokenizer([text], return_tensors="pt").to(device)
 
-    if args.configuration=="cot":
+    if args.configuration == "cot":
         generated_ids = model.generate(
             model_inputs.input_ids, max_new_tokens=512, temperature=temperature
         )
-    else: 
+    else:
         generated_ids = model.generate(
             model_inputs.input_ids, max_new_tokens=20, temperature=temperature
-    )
-    
+        )
+
     generated_ids = [
         output_ids[len(input_ids) :]
         for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
     ]
     output = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
     return output
+
 
 # ---- Inference
 results = {}
@@ -192,7 +205,7 @@ for idx, element in enumerate(dataset["test"]):
         break
     pred = generate(model, tokenizer, prompt, element["text"])
     print(pred)
-    
+
     args.verbose and print(" > Pred: ", pred)
     args.verbose and print(" > Ref: ", element["label"])
 
@@ -212,11 +225,11 @@ for idx, element in enumerate(dataset["test"]):
                 temperature=0.7,
             )
             print(f" >> Attempted Pred: {pred}")
-            
+
             if parse_label(pred) is not None:
                 print(" >> Regularized output: ", pred)
                 break
-            
+
             retry_count += 1
 
         if retry_count == max_retries:
