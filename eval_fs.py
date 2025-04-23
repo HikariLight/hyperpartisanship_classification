@@ -123,50 +123,40 @@ if args.method == "fs_dpp":
 
 
 def parse_label(model_output):
+    # First extract content after "==>"
+    match = re.search(r"==>(.+)", model_output)
+    if not match:
+        return None
+    
+    content = match.group(1).strip().lower()
+    
     if args.task_labels == "hp":
-        match = re.search(r"\b(hyperpartisan|neutral)\b", model_output.lower())
-
-        if match:
-            found_text = match.group()
-            if found_text == "zero":
-                return 0
-            elif found_text == "one":
-                return 1
-
-    if args.task_labels == "fn":
-        match = re.search(r"\b(fake|true)\b", model_output.lower())
-
-        if match:
-            found_text = match.group()
-            if found_text == "true":
-                return 0
-            elif found_text == "fake":
-                return 1
-
-    if args.task_labels == "ht":
-        match = re.search(r"(harmful|not)", model_output.lower())
-
-        if match:
-            found_text = match.group()
-            if found_text == "not":
-                return 0
-            elif found_text == "harmful":
-                return 1
-
-    if args.task_labels == "pl":
-        match = re.search(r"\b(left|center|right)\b", model_output.lower())
-
-        if match:
-            found_text = match.group()
-            if found_text == "center":
-                return 1
-            elif found_text == "left":
-                return 0
-            elif found_text == "right":
-                return 2
-
+        if "neutral" in content:
+            return 0
+        elif "hyperpartisan" in content:
+            return 1
+    
+    elif args.task_labels == "fn":
+        if "true" in content:
+            return 0
+        elif "fake" in content:
+            return 1
+    
+    elif args.task_labels == "ht":
+        if "not" in content:
+            return 0
+        elif "harmful" in content:
+            return 1
+    
+    elif args.task_labels == "pl":
+        if "center" in content:
+            return 1
+        elif "left" in content:
+            return 0
+        elif "right" in content:
+            return 2
+    
     return None
-
 
 def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0.1):
     messages = [
@@ -245,10 +235,13 @@ def run_dpp_evaluation():
                     model, tokenizer, prompt, few_shots_string, element["text"]
                 )
 
-                args.verbose and print(" > Pred: ", pred)
-                args.verbose and print(" > Ref: ", element["label"])
-
-                if parse_label(pred) is None:
+                # Parse the label and print it for normal outputs
+                parsed_label = parse_label(pred)
+                print(" > Pred: ", pred)
+                print(" > Parsed label: ", parsed_label)
+                print(" > Ref: ", element["label"])
+                
+                if parsed_label is None:
                     print(" > Irregular output:  ", pred)
 
                     print("*" * 5, "Trying to resolve irregularity", "*" * 5)
@@ -262,9 +255,11 @@ def run_dpp_evaluation():
                             temperature=0.7,
                         )
                         print(" >> Attempted Pred: ", pred)
-
-                        if parse_label(pred) is not None:
+                        parsed_label = parse_label(pred)
+                        
+                        if parsed_label is not None:
                             print(" >> Regularized output: ", pred)
+                            print(" >> Parsed label value: ", parsed_label)
                             break
                     irregular_outputs += 1
                     continue
