@@ -20,17 +20,17 @@ set_seed(42)
 # --- Params parsing
 parser = argparse.ArgumentParser(prog="Few-Shot Evaluation Script")
 parser.add_argument(
-    "--model_name", type=str, default="meta-llama/Meta-Llama-3.1-8B-Instruct"
+    "--model_name", type=str, default="meta-llama/Llama-3.1-8B-Instruct"
 )
 parser.add_argument("--use_quantization", action="store_true")
 parser.add_argument("--verbose", action="store_true")
 parser.add_argument("--dataset_name", type=str, default="")
 parser.add_argument(
-    "--method",
+    "--configuration",
     type=str,
     default="fs_dpp",
     choices=["fs_dpp", "fs_random"],
-    help="Evaluation method: fs_dpp (DPP few-shot) or fs_random (random few-shot)",
+    help="Evaluation configuration: fs_dpp (DPP few-shot) or fs_random (random few-shot)",
 )
 parser.add_argument(
     "--language", type=str, default="", help="Language for prompts ('bg', 'en', 'pt')"
@@ -46,7 +46,7 @@ print("Parsed Arguments:", args)
 main_run = wandb.init(
     project="AllSides",
     entity="michelej-m",
-    name=f"[{args.method}] {args.model_name.split('/')[1]}_few_shot",
+    name=f"[{args.configuration}] {args.model_name.split('/')[1]}_few_shot",
     reinit=True,
 )
 main_run.log({"num_runs": 5})
@@ -109,7 +109,7 @@ print(f"Using prompts: {prompts}")
 prompt = f'"""\n{prompts}\n"""'
 
 # Load DPP few-shot examples if using the DPP method
-if args.method == "fs_dpp":
+if args.configuration == "fs_dpp":
     if args.dataset_name == "clef_1c":
         with open(
             f"./data/{args.dataset_name}/{args.dataset_name}_{args.language}_5_runs.json"
@@ -124,30 +124,33 @@ if args.method == "fs_dpp":
 
 def parse_label(model_output):
     # First extract content after "==>"
-    match = re.search(r"==>(.+)", model_output)
+    match = re.search(
+        r"Final (?:prediction|Answer)(?:\s*==>|\s*:)\s*(?:\*\*)?([^\s*]+)(?:\*\*)?",
+        model_output,
+    )
     if not match:
         return None
-    
+
     content = match.group(1).strip().lower()
-    
+
     if args.task_labels == "hp":
         if "neutral" in content:
             return 0
         elif "hyperpartisan" in content:
             return 1
-    
+
     elif args.task_labels == "fn":
         if "true" in content:
             return 0
         elif "fake" in content:
             return 1
-    
+
     elif args.task_labels == "ht":
         if "not" in content:
             return 0
         elif "harmful" in content:
             return 1
-    
+
     elif args.task_labels == "pl":
         if "center" in content:
             return 1
@@ -155,25 +158,24 @@ def parse_label(model_output):
             return 0
         elif "right" in content:
             return 2
-    
+
     return None
 
-def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0.1):
-    messages = [
-        {
-            "role": "system",
-            "content": "You have received an instruction that describes a task and it has been combined with an input that provides more context. Respond as directed in the instruction.",
-        },
-        {"role": "user", "content": prompt.format(few_shot_examples, element)},
-    ]
 
+def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0.1):
+    formatted_prompt = prompt.format(few_shot_examples, element)
+
+    messages = [
+        {"role": "user", "content": formatted_prompt},
+    ]
+    # print(messages)
     text = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
     )
     model_inputs = tokenizer([text], return_tensors="pt").to(device)
 
     generated_ids = model.generate(
-        model_inputs.input_ids, max_new_tokens=512, temperature=temperature
+        model_inputs.input_ids, max_new_tokens=20, temperature=temperature
     )
     generated_ids = [
         output_ids[len(input_ids) :]
@@ -230,17 +232,19 @@ def run_dpp_evaluation():
             preds = []
             refs = []
 
-            for element in dataset["test"]:
+            for idx, element in enumerate(dataset["test"]):
+                if idx >= 200:
+                    break
                 pred = generate(
                     model, tokenizer, prompt, few_shots_string, element["text"]
                 )
 
                 # Parse the label and print it for normal outputs
                 parsed_label = parse_label(pred)
-                print(" > Pred: ", pred)
+                # print(" > Pred: ", pred)
                 print(" > Parsed label: ", parsed_label)
                 print(" > Ref: ", element["label"])
-                
+
                 if parsed_label is None:
                     print(" > Irregular output:  ", pred)
 
@@ -256,7 +260,7 @@ def run_dpp_evaluation():
                         )
                         print(" >> Attempted Pred: ", pred)
                         parsed_label = parse_label(pred)
-                        
+
                         if parsed_label is not None:
                             print(" >> Regularized output: ", pred)
                             print(" >> Parsed label value: ", parsed_label)
@@ -332,14 +336,15 @@ def run_random_evaluation():
             preds = []
             refs = []
 
-            for element in dataset["test"]:
+            for idx, element in enumerate(dataset["test"]):
                 pred = generate(
                     model, tokenizer, prompt, few_shots_string, element["text"]
                 )
 
-                args.verbose and print(" > Pred: ", pred)
-                args.verbose and print(" > Pred: ", parse_label(pred))
-                args.verbose and print(" > Ref: ", element["label"])
+                parsed_label = parse_label(pred)
+                # print(" > Pred: ", pred)
+                print(" > Parsed label: ", parsed_label)
+                print(" > Ref: ", element["label"])
 
                 if parse_label(pred) is None:
                     print(" > Irregular output:  ", pred)
@@ -385,7 +390,7 @@ def run_random_evaluation():
 
 
 # ---- Run the selected evaluation method
-if args.method == "fs_dpp":
+if args.configuration == "fs_dpp":
     results, model_outputs, final_evals = run_dpp_evaluation()
 
     # ---- Saving results/outputs to JSON files
@@ -407,9 +412,9 @@ if args.method == "fs_dpp":
     # ---- Logging average metrics as separate runs
     for few_shot_config in final_evals:
         run = wandb.init(
-            project="AllSides",
+            project=args.dataset_name,
             entity="michelej-m",
-            name=f"[DPP] {few_shot_config}",
+            name=f"{args.configuration}",
             reinit=True,
         )
         run.log({"num_runs": 5})
@@ -420,7 +425,7 @@ if args.method == "fs_dpp":
         run.finish()
 
 
-elif args.method == "fs_random":
+elif args.configuration == "fs_random":
     results, model_outputs, final_evals, run_settings = run_random_evaluation()
 
     # ---- Saving results/outputs to JSON files
@@ -448,7 +453,7 @@ elif args.method == "fs_random":
         run = wandb.init(
             project="AllSides",
             entity="michelej-m",
-            name=f"[Random] {few_shot_config}",
+            name=f"{args.configuration}",
             reinit=True,
         )
         run.log({"num_runs": 5})

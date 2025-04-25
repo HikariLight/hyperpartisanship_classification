@@ -100,6 +100,7 @@ print(" > Label num: ", num_labels)
 # Load the prompts with specific config and language
 
 prompt_path = "./prompts_ICWSM.json"
+
 with open(prompt_path, "r", encoding="utf-8") as f:
     prompts = json.load(f)
 
@@ -114,30 +115,33 @@ prompt = f'"""\n{prompts}\n"""'
 
 def parse_label(model_output):
     # First extract content after "==>"
-    match = re.search(r"==>(.+)", model_output)
+    match = re.search(
+        r"Final (?:prediction|Answer)(?:\s*==>|\s*:)\s*(?:\*\*)?([^\s*]+)(?:\*\*)?",
+        model_output,
+    )
     if not match:
         return None
-    
+
     content = match.group(1).strip().lower()
-    
+
     if args.task_labels == "hp":
         if "neutral" in content:
             return 0
         elif "hyperpartisan" in content:
             return 1
-    
+
     elif args.task_labels == "fn":
         if "true" in content:
             return 0
         elif "fake" in content:
             return 1
-    
+
     elif args.task_labels == "ht":
         if "not" in content:
             return 0
         elif "harmful" in content:
             return 1
-    
+
     elif args.task_labels == "pl":
         if "center" in content:
             return 1
@@ -145,19 +149,15 @@ def parse_label(model_output):
             return 0
         elif "right" in content:
             return 2
-    
+
     return None
 
 
 def generate(model, tokenizer, prompt, element, temperature=0.1):
     messages = [
-        {
-            "role": "system",
-            "content": "You have received an instruction that describes a task and it has been combined with an input that provides more context. Respond as directed in the instruction.",
-        },
         {"role": "user", "content": prompt.format(element)},
     ]
-
+    print("Message: ", messages)
     text = tokenizer.apply_chat_template(
         messages, tokenize=False, add_generation_prompt=True
     )
@@ -191,8 +191,8 @@ refs = []
 
 start_time = time.time()
 for idx, element in enumerate(dataset["test"]):
-    #print(idx)
-    if idx >= 10:
+    # print(idx) ################################################TO REMOVEEEEEEEEEEEEE the following part!!!!!!!!###############################################
+    if idx >= 200:
         break
     pred = generate(model, tokenizer, prompt, element["text"])
     print(pred)
