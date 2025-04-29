@@ -93,7 +93,8 @@ else:
 dataset = load_dataset(
     "json", data_files={"train": dataset_path_train, "test": dataset_path_test}
 )
-print(dataset["train"][0])
+print(dataset)
+
 num_labels = len(dataset["train"].unique("label"))
 print(" > Label num: ", num_labels)
 
@@ -105,16 +106,16 @@ with open(prompt_path, "r", encoding="utf-8") as f:
     prompts = json.load(f)
 
 if args.dataset_name == "clef_1c":
-    prompts = prompts[f"{args.dataset_name}_{args.language}"][args.configuration]
+    prompt = prompts[f"{args.dataset_name}_{args.language}"][args.configuration]
 else:
-    prompts = prompts[args.dataset_name][args.configuration]
+    prompt = prompts[args.dataset_name][args.configuration]
 
-print(f"Using prompts: {prompts}")
-prompt = f'"""\n{prompts}\n"""'
+print("-" * 10, "Prompt", "-" * 10)
+print(prompt)
+print("-" * 30)
 
 
 def parse_label(model_output):
-    # First extract content after "==>"
     match = re.search(
         r"Final (?:prediction|Answer)(?:\s*==>|\s*:)\s*(?:\*\*)?([^\s*]+)(?:\*\*)?",
         model_output,
@@ -157,21 +158,20 @@ def generate(model, tokenizer, prompt, element, temperature=0.1):
     messages = [
         {"role": "user", "content": prompt.format(element)},
     ]
-    print("Message: ", messages)
-    text = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
+
+    model_inputs = tokenizer.apply_chat_template(
+        messages,
+        tokenize=True,
+        add_generation_prompt=True,
+        return_tensors="pt",
+        return_dict=True,
+    ).to(device)
+
+    generated_ids = model.generate(
+        **model_inputs,
+        max_new_tokens=512,
+        temperature=temperature,
     )
-
-    model_inputs = tokenizer([text], return_tensors="pt").to(device)
-
-    if args.configuration == "cot":
-        generated_ids = model.generate(
-            model_inputs.input_ids, max_new_tokens=512, temperature=temperature
-        )
-    else:
-        generated_ids = model.generate(
-            model_inputs.input_ids, max_new_tokens=20, temperature=temperature
-        )
 
     generated_ids = [
         output_ids[len(input_ids) :]
@@ -191,14 +191,10 @@ refs = []
 
 start_time = time.time()
 for idx, element in enumerate(dataset["test"]):
-    # print(idx) ################################################TO REMOVEEEEEEEEEEEEE the following part!!!!!!!!###############################################
-    if idx >= 200:
-        break
     pred = generate(model, tokenizer, prompt, element["text"])
-    print(pred)
 
     args.verbose and print(" > Pred: ", pred)
-    args.verbose and print(" > Ref: ", element["label"])
+    args.verbose and print(f" > Ref #{idx}: {element['label']}")
 
     if parse_label(pred) is None:
         print(" > Irregular output:  ", pred)
@@ -215,7 +211,7 @@ for idx, element in enumerate(dataset["test"]):
                 element["text"],
                 temperature=0.7,
             )
-            print(f" >> Attempted Pred: {pred}")
+            args.verbose and print(f" >> Attempted Pred: {pred}")
 
             if parse_label(pred) is not None:
                 print(" >> Regularized output: ", pred)
