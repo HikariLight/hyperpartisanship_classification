@@ -43,7 +43,8 @@ wandb.init(
 wandb.log({"num_runs": args.runs})
 
 ## --- Tokenizer
-tokenizer = AutoTokenizer.from_pretrained(args.model_name, add_prefix_space=True)
+# tokenizer = AutoTokenizer.from_pretrained(args.model_name, add_prefix_space=True)
+tokenizer = AutoTokenizer.from_pretrained(args.model_name)
 tokenizer.pad_token_id = tokenizer.eos_token_id
 tokenizer.pad_token = tokenizer.eos_token
 
@@ -58,6 +59,7 @@ dataset_path_test = f"./processed_data/test.json"
 dataset = load_dataset(
     "json", data_files={"train": dataset_path_train, "test": dataset_path_test}
 )
+print(dataset)
 print(dataset["train"][0])
 num_labels = len(dataset["train"].unique("label"))
 print(" > Label num: ", num_labels)
