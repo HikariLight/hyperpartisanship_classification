@@ -175,7 +175,7 @@ def generate(model, tokenizer, prompt, few_shot_examples, element, temperature=0
     model_inputs = tokenizer([text], return_tensors="pt").to(device)
 
     generated_ids = model.generate(
-        model_inputs.input_ids, max_new_tokens=20, temperature=temperature
+        model_inputs.input_ids, max_new_tokens=512, temperature=temperature
     )
     generated_ids = [
         output_ids[len(input_ids) :]
@@ -201,7 +201,7 @@ def construct_few_shot_string_random(few_shot_examples):
     few_shot_string = ""
 
     for item in few_shot_examples:
-        few_shot_string += f"{item['text']},{item['label']}\n"
+        few_shot_string += f"{item['text']} ==> {item['label']}\n"
 
     return few_shot_string
 
