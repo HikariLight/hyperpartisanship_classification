@@ -8,21 +8,19 @@ from datasets import load_dataset
 import argparse
 import torch
 import time
+import random
 import json
 import re
 import wandb
 from utils import compute_metrics
-import os
-
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 set_seed(42)
 
-
 # --- Params parsing
-parser = argparse.ArgumentParser(prog="Zero-Shot Eval script")
+parser = argparse.ArgumentParser(prog="Zero-Shot Evaluation Script")
 parser.add_argument(
-    "--model_name", type=str, default="meta-llama/Meta-Llama-3-8B-Instruct"
+    "--model_name", type=str, default="meta-llama/Llama-3.1-8B-Instruct"
 )
 parser.add_argument("--use_quantization", action="store_true")
 parser.add_argument("--verbose", action="store_true")
@@ -30,25 +28,36 @@ parser.add_argument("--dataset_name", type=str, default="")
 parser.add_argument(
     "--configuration",
     type=str,
-    default="",
-    choices=["cot", "zero_shot_generic", "zero_shot_specific", "codebook"],
+    default="zero_shot_generic",
+    choices=["zero_shot_generic", "zero_shot_specific", "zero_shot_cot"],
+    help="Evaluation configuration: zero-shot variants",
 )
 parser.add_argument(
-    "--language", type=str, default="", help="Language for prompts ('bg', 'en', 'pt')"
+    "--language",
+    type=str,
+    default="en",
+    help="Language for prompts ('en', 'bg', 'ar', 'es', 'pt')",
 )
 parser.add_argument(
     "--task_labels", type=str, default="", choices=["hp", "pl", "ht", "fn"]
 )
+parser.add_argument(
+    "--label_type",
+    type=str,
+    default="string",
+    choices=["string", "int"],
+    help="Format of the labels in the model's output: 'string' for text labels or 'int' for integer labels",
+)
 args = parser.parse_args()
-print(args)
 
+print("Parsed Arguments:", args)
 
 main_run = wandb.init(
-    project=args.dataset_name,
+    project="AllSides",
     entity="michelej-m",
-    name=f"{args.model_name.split('/')[1]}_{args.configuration}",
+    name=f"[{args.configuration}] {args.model_name.split('/')[1]}_zero_shot",
+    reinit=True,
 )
-main_run.log({"num_runs": 5})
 
 # ---- Model/Tokenizer loading
 if args.use_quantization:
@@ -60,7 +69,6 @@ if args.use_quantization:
     )
 else:
     quantization_config = None
-
 
 model = AutoModelForCausalLM.from_pretrained(
     args.model_name,
@@ -78,44 +86,49 @@ if tokenizer.pad_token is None:
 model.generation_config.pad_token_id = tokenizer.pad_token_id
 print(model.generation_config)
 
-
 # ---- Dataset loading/Processing
-current_dir = os.getcwd()  # Gets the current working directory
-
-if args.dataset_name == "clef_1c":
-    dataset_path_train = os.path.join(current_dir, "processed_data", "train.json")
-    dataset_path_test = os.path.join(current_dir, "processed_data", "test.json")
-else:
-    dataset_path_train = os.path.join(current_dir, "processed_data", "train.json")
-    dataset_path_test = os.path.join(current_dir, "processed_data", "test.json")
-
-# Load the dataset with explicit splits
 dataset = load_dataset(
-    "json", data_files={"train": dataset_path_train, "test": dataset_path_test}
+    "json",
+    data_files={
+        "train": "./processed_data/train.json",
+        "test": "./processed_data/test.json",
+    },
 )
 print(dataset)
 
 num_labels = len(dataset["train"].unique("label"))
 print(" > Label num: ", num_labels)
 
-# Load the prompts with specific config and language
-
-prompt_path = "./prompts_ICWSM.json"
+# Load prompts for zero-shot evaluation
+if args.label_type == "string":
+    prompt_path = "./prompts_ICWSM_str.json"
+else:
+    prompt_path = "./prompts_ICWSM_int.json"
 
 with open(prompt_path, "r", encoding="utf-8") as f:
     prompts = json.load(f)
 
-if args.dataset_name == "clef_1c":
-    prompt = prompts[f"{args.dataset_name}_{args.language}"][args.configuration]
+# Select the appropriate prompt based on task, dataset, and language
+if args.task_labels == "fn" or args.task_labels == "ht":
+    # Multi-language tasks
+    if args.language in prompts[args.task_labels]:
+        prompt_template = prompts[args.task_labels][args.language][args.configuration]
+    else:
+        # Exit with error if specified language not available
+        print(
+            f"Error: Language {args.language} not available for task {args.task_labels}."
+        )
+        exit(1)
 else:
-    prompt = prompts[args.dataset_name][args.configuration]
+    # Single language tasks
+    prompt_template = prompts[args.task_labels][args.configuration]
 
-print("-" * 10, "Prompt", "-" * 10)
-print(prompt)
-print("-" * 30)
+print(f"Using prompt template: {prompt_template}")
+prompt = f'"""\n{prompt_template}\n"""'
 
 
 def parse_label(model_output):
+    # First extract content after "==>" or following "Final prediction/Answer"
     match = re.search(
         r"Final (?:prediction|Answer)(?:\s*==>|\s*:)\s*(?:\*\*)?([^\s*]+)(?:\*\*)?",
         model_output,
@@ -125,6 +138,19 @@ def parse_label(model_output):
 
     content = match.group(1).strip().lower()
 
+    # Handle integer-based labels if specified
+    if args.label_type == "int":
+        # Look for "0" or "1" (and "2" for pl task) in the output
+        if "0" in content:
+            return 0
+        elif "1" in content:
+            return 1
+        elif args.task_labels == "pl" and "2" in content:
+            return 2
+        else:
+            return None
+
+    # Handle string-based labels (default behavior)
     if args.task_labels == "hp":
         if "neutral" in content:
             return 0
@@ -138,7 +164,7 @@ def parse_label(model_output):
             return 1
 
     elif args.task_labels == "ht":
-        if "not" in content:
+        if "neutral" in content:
             return 0
         elif "harmful" in content:
             return 1
@@ -155,24 +181,20 @@ def parse_label(model_output):
 
 
 def generate(model, tokenizer, prompt, element, temperature=0.1):
-    messages = [
-        {"role": "user", "content": prompt.format(element)},
-    ]
+    formatted_prompt = prompt.format(element)
 
-    model_inputs = tokenizer.apply_chat_template(
-        messages,
-        tokenize=True,
-        add_generation_prompt=True,
-        return_tensors="pt",
-        return_dict=True,
-    ).to(device)
+    messages = [
+        {"role": "user", "content": formatted_prompt},
+    ]
+    # print(messages)
+    text = tokenizer.apply_chat_template(
+        messages, tokenize=False, add_generation_prompt=True
+    )
+    model_inputs = tokenizer([text], return_tensors="pt").to(device)
 
     generated_ids = model.generate(
-        **model_inputs,
-        max_new_tokens=512,
-        temperature=temperature,
+        model_inputs.input_ids, max_new_tokens=512, temperature=temperature
     )
-
     generated_ids = [
         output_ids[len(input_ids) :]
         for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)

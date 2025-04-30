@@ -38,13 +38,20 @@ parser.add_argument(
 parser.add_argument(
     "--task_labels", type=str, default="", choices=["hp", "pl", "ht", "fn"]
 )
+parser.add_argument(
+    "--label_type",
+    type=str,
+    default="string",
+    choices=["string", "int"],
+    help="Format of the labels in the model's output: 'string' for text labels or 'int' for integer labels",
+)
 args = parser.parse_args()
 
 print("Parsed Arguments:", args)
 
 
 main_run = wandb.init(
-    project="AllSides",
+    project=args.dataset_name,
     entity="michelej-m",
     name=f"[{args.configuration}] {args.model_name.split('/')[1]}_few_shot",
     reinit=True,
@@ -100,10 +107,19 @@ prompt_path = "./prompts_ICWSM.json"
 with open(prompt_path, "r", encoding="utf-8") as f:
     prompts = json.load(f)
 
-if args.dataset_name == "clef_1c":
-    prompts = prompts[f"{args.dataset_name}_{args.language}"]["few_shot"]
+if args.task_labels == "fn" or args.task_labels == "ht":
+    # Multi-language tasks
+    if args.language in prompts[args.task_labels]:
+        prompt_template = prompts[args.task_labels][args.language][args.configuration]
+    else:
+        # Default to English if specified language not available
+        print(
+            f"Warning: Language {args.language} not available for task {args.task_labels}. Using 'en'."
+        )
 else:
-    prompts = prompts[args.dataset_name]["few_shot"]
+    # Single language tasks
+    prompt_template = prompts[args.task_labels][args.configuration]
+
 
 print(f"Using prompts: {prompts}")
 prompt = f'"""\n{prompts}\n"""'
@@ -123,7 +139,7 @@ if args.configuration == "fs_dpp":
 
 
 def parse_label(model_output):
-    # First extract content after "==>"
+    # First extract content after "==>" or following "Final prediction/Answer"
     match = re.search(
         r"Final (?:prediction|Answer)(?:\s*==>|\s*:)\s*(?:\*\*)?([^\s*]+)(?:\*\*)?",
         model_output,
@@ -133,6 +149,19 @@ def parse_label(model_output):
 
     content = match.group(1).strip().lower()
 
+    # Handle integer-based labels if specified
+    if args.label_type == "int":
+        # Look for "0" or "1" (and "2" for pl task) in the output
+        if "0" in content:
+            return 0
+        elif "1" in content:
+            return 1
+        elif args.task_labels == "pl" and "2" in content:
+            return 2
+        else:
+            return None
+
+    # Handle string-based labels (default behavior)
     if args.task_labels == "hp":
         if "neutral" in content:
             return 0
