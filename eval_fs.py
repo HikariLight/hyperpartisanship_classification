@@ -102,7 +102,10 @@ num_labels = len(dataset["train"].unique("label"))
 print(" > Label num: ", num_labels)
 
 # Load prompts for few-shot evaluation
-prompt_path = "./prompts_ICWSM.json"
+if args.label_type == "string":
+    prompt_path = "./prompts_ICWSM_str.json"
+else:
+    prompt_path = "./prompts_ICWSM_int.json"
 
 with open(prompt_path, "r", encoding="utf-8") as f:
     prompts = json.load(f)
@@ -110,7 +113,7 @@ with open(prompt_path, "r", encoding="utf-8") as f:
 if args.task_labels == "fn" or args.task_labels == "ht":
     # Multi-language tasks
     if args.language in prompts[args.task_labels]:
-        prompt_template = prompts[args.task_labels][args.language][args.configuration]
+        prompt = prompts[args.task_labels][args.language]["few_shot"]
     else:
         # Default to English if specified language not available
         print(
@@ -118,11 +121,10 @@ if args.task_labels == "fn" or args.task_labels == "ht":
         )
 else:
     # Single language tasks
-    prompt_template = prompts[args.task_labels][args.configuration]
+    prompt = prompts[args.task_labels]["few_shot"]
 
 
-print(f"Using prompts: {prompts}")
-prompt = f'"""\n{prompts}\n"""'
+print(f"Using prompts: {prompt}")
 
 # Load DPP few-shot examples if using the DPP method
 if args.configuration == "fs_dpp":
@@ -421,73 +423,37 @@ def run_random_evaluation():
 # ---- Run the selected evaluation method
 if args.configuration == "fs_dpp":
     results, model_outputs, final_evals = run_dpp_evaluation()
-
-    # ---- Saving results/outputs to JSON files
-    with open("results.json", "w") as json_file:
-        json.dump(results, json_file, indent=4)
-
-    with open("avg_results.json", "w") as json_file:
-        json.dump(final_evals, json_file, indent=4)
-
-    with open("model_outputs.json", "w") as json_file:
-        json.dump(model_outputs, json_file, indent=4)
-
-    main_run.save("results.json")
-    main_run.save("avg_results.json")
-    main_run.save("model_outputs.json")
-
-    main_run.finish()
-
-    # ---- Logging average metrics as separate runs
-    for few_shot_config in final_evals:
-        run = wandb.init(
-            project=args.dataset_name,
-            entity="michelej-m",
-            name=f"{args.configuration}",
-            reinit=True,
-        )
-        run.log({"num_runs": 5})
-
-        for metric in final_evals[few_shot_config]:
-            run.log({f"avg_{metric}": final_evals[few_shot_config][metric]["score"]})
-
-        run.finish()
-
-
-elif args.configuration == "fs_random":
+else:
     results, model_outputs, final_evals, run_settings = run_random_evaluation()
 
-    # ---- Saving results/outputs to JSON files
-    with open("results.json", "w") as json_file:
-        json.dump(results, json_file, indent=4)
 
-    with open("avg_results.json", "w") as json_file:
-        json.dump(final_evals, json_file, indent=4)
+# ---- Saving results/outputs to JSON files
+with open("results.json", "w") as json_file:
+    json.dump(results, json_file, indent=4)
 
-    with open("model_outputs.json", "w") as json_file:
-        json.dump(model_outputs, json_file, indent=4)
+with open("avg_results.json", "w") as json_file:
+    json.dump(final_evals, json_file, indent=4)
 
-    with open("run_settings.json", "w") as json_file:
-        json.dump(run_settings, json_file, indent=4)
+with open("model_outputs.json", "w") as json_file:
+    json.dump(model_outputs, json_file, indent=4)
 
-    main_run.save("results.json")
-    main_run.save("avg_results.json")
-    main_run.save("model_outputs.json")
-    main_run.save("run_settings.json")
+main_run.save("results.json")
+main_run.save("avg_results.json")
+main_run.save("model_outputs.json")
 
-    main_run.finish()
+main_run.finish()
 
-    # ---- Logging average metrics as separate runs
-    for few_shot_config in final_evals:
-        run = wandb.init(
-            project="AllSides",
-            entity="michelej-m",
-            name=f"{args.configuration}",
-            reinit=True,
-        )
-        run.log({"num_runs": 5})
+# ---- Logging average metrics as separate runs
+for few_shot_config in final_evals:
+    run = wandb.init(
+        project=args.dataset_name,
+        entity="michelej-m",
+        name=f"{few_shot_config}",
+        reinit=True,
+    )
+    run.log({"num_runs": 5})
 
-        for metric in final_evals[few_shot_config]:
-            run.log({f"avg_{metric}": final_evals[few_shot_config][metric]["score"]})
+    for metric in final_evals[few_shot_config]:
+        run.log({f"avg_{metric}": final_evals[few_shot_config][metric]["score"]})
 
-        run.finish()
+    run.finish()
