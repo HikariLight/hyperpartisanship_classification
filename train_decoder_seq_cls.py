@@ -38,7 +38,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 wandb.init(
     project=args.dataset_name,
     entity="michelej-m",
-    name=args.model_name.split("/")[1],
+    name=f"[FT] {args.model_name.split('/')[1]}",
 )
 wandb.log({"num_runs": args.runs})
 

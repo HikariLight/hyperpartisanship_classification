@@ -5,7 +5,7 @@ from transformers import (
     Trainer,
     TrainingArguments,
     DataCollatorWithPadding,
-    BitsAndBytesConfig
+    BitsAndBytesConfig,
 )
 from peft import LoraConfig, get_peft_model
 from datasets import load_dataset
@@ -27,7 +27,9 @@ parser.add_argument("--save", action="store_true")
 parser.add_argument("--use_quantization", action="store_true")
 parser.add_argument("--dataset_name", type=str, default="")
 parser.add_argument("--configuration", type=str, default="")
-parser.add_argument("--language", type=str, default="", help="Language for prompts ('bg', 'en', 'pt')")
+parser.add_argument(
+    "--language", type=str, default="", help="Language for prompts ('bg', 'en', 'pt')"
+)
 args = parser.parse_args()
 print(args)
 
@@ -36,7 +38,7 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 wandb.init(
     project=args.dataset_name,
     entity="michelej-m",
-    name=args.model_name.split("/")[1],
+    name=f"[FT] {args.model_name.split('/')[1]}",
 )
 wandb.log({"num_runs": args.runs})
 
@@ -56,25 +58,25 @@ dataset_path_train = f"./processed_data/train.json"
 dataset_path_test = f"./processed_data/test.json"
 
 # Load the dataset with explicit splits
-dataset = load_dataset("json", data_files={"train": dataset_path_train, "test": dataset_path_test})
-print(dataset['train'][0])
+dataset = load_dataset(
+    "json", data_files={"train": dataset_path_train, "test": dataset_path_test}
+)
+print(dataset["train"][0])
 num_labels = len(dataset["train"].unique("label"))
 print(" > Label num: ", num_labels)
 
 results = []
 
 for _ in range(args.runs):
-
     if args.use_quantization:
-
         quantization_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
             bnb_4bit_use_double_quant=True,
             bnb_4bit_compute_dtype=torch.bfloat16,
-            )
+        )
     else:
-        quantization_config=None
+        quantization_config = None
 
     model = AutoModelForSequenceClassification.from_pretrained(
         model_name,
@@ -86,15 +88,9 @@ for _ in range(args.runs):
     model.config.pretraining_tp = 1
 
     lora_config = LoraConfig(
-        r=8,
-        lora_alpha=16,
-        lora_dropout=0.1,
-        bias="none",
-        task_type="SEQ_CLS"
+        r=8, lora_alpha=16, lora_dropout=0.1, bias="none", task_type="SEQ_CLS"
     )
     model = get_peft_model(model, lora_config)
-
-
 
     def tokenization_func(examples):
         return tokenizer(examples["text"], truncation=True, max_length=max_len)
@@ -102,7 +98,7 @@ for _ in range(args.runs):
     tokenized_dataset = dataset.map(tokenization_func)
     tokenized_dataset = tokenized_dataset.select_columns(
         ["input_ids", "attention_mask", "label"]
-        )
+    )
     length_stats = get_dataset_length_stats(tokenizer, dataset)
     print(json.dumps(length_stats, indent=4))
 
