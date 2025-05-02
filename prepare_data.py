@@ -11,7 +11,7 @@ parser = argparse.ArgumentParser(prog="Dataset Preparation")
 parser.add_argument("--dataset_name", type=str, default="")
 parser.add_argument("--dataset_path", type=str, default="./data")
 parser.add_argument("--output_path", type=str, default="./processed_data")
-parser.add_argument("--language", type=str, default="")
+parser.add_argument("--language", type=str, default="en")
 args = parser.parse_args()
 
 
