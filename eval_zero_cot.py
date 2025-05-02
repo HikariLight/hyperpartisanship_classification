@@ -29,7 +29,7 @@ parser.add_argument(
     "--configuration",
     type=str,
     default="zero_shot_generic",
-    choices=["zero_shot_generic", "zero_shot_specific", "zero_shot_cot"],
+    choices=["zero_shot_generic", "zero_shot_specific", "codebook", "cot"],
     help="Evaluation configuration: zero-shot variants",
 )
 parser.add_argument(
@@ -53,9 +53,9 @@ args = parser.parse_args()
 print("Parsed Arguments:", args)
 
 main_run = wandb.init(
-    project="AllSides",
+    project=args.dataset_name,
     entity="michelej-m",
-    name=f"[{args.configuration}] {args.model_name.split('/')[1]}_zero_shot",
+    name=f"[{args.configuration}] [{args.label_type}] {args.model_name.split('/')[1]}_zero_shot",
     reinit=True,
 )
 
@@ -74,7 +74,7 @@ model = AutoModelForCausalLM.from_pretrained(
     args.model_name,
     device_map=device,
     torch_dtype=torch.bfloat16,
-    # attn_implementation="flash_attention_2",
+    attn_implementation="flash_attention_2",
     quantization_config=quantization_config,
 )
 
@@ -112,7 +112,7 @@ with open(prompt_path, "r", encoding="utf-8") as f:
 if args.task_labels == "fn" or args.task_labels == "ht":
     # Multi-language tasks
     if args.language in prompts[args.task_labels]:
-        prompt_template = prompts[args.task_labels][args.language][args.configuration]
+        prompt = prompts[args.task_labels][args.language][args.configuration]
     else:
         # Exit with error if specified language not available
         print(
@@ -121,10 +121,9 @@ if args.task_labels == "fn" or args.task_labels == "ht":
         exit(1)
 else:
     # Single language tasks
-    prompt_template = prompts[args.task_labels][args.configuration]
+    prompt = prompts[args.task_labels][args.configuration]
 
-print(f"Using prompt template: {prompt_template}")
-prompt = f'"""\n{prompt_template}\n"""'
+print(f"Using prompt template: {prompt}")
 
 
 def parse_label(model_output):
@@ -180,20 +179,26 @@ def parse_label(model_output):
     return None
 
 
-def generate(model, tokenizer, prompt, element, temperature=0.1):
+def generate(model, tokenizer, prompt, element, do_sample=False, temperature=0.0):
     formatted_prompt = prompt.format(element)
 
     messages = [
         {"role": "user", "content": formatted_prompt},
     ]
-    # print(messages)
-    text = tokenizer.apply_chat_template(
-        messages, tokenize=False, add_generation_prompt=True
-    )
-    model_inputs = tokenizer([text], return_tensors="pt").to(device)
+
+    model_inputs = tokenizer.apply_chat_template(
+        messages,
+        tokenize=True,
+        add_generation_prompt=True,
+        return_tensors="pt",
+        return_dict=True,
+    ).to(device)
 
     generated_ids = model.generate(
-        model_inputs.input_ids, max_new_tokens=512, temperature=temperature
+        **model_inputs,
+        max_new_tokens=512,
+        do_sample=do_sample,
+        temperature=temperature,
     )
     generated_ids = [
         output_ids[len(input_ids) :]
@@ -216,7 +221,7 @@ for idx, element in enumerate(dataset["test"]):
     pred = generate(model, tokenizer, prompt, element["text"])
 
     args.verbose and print(" > Pred: ", pred)
-    args.verbose and print(f" > Ref #{idx}: {element['label']}")
+    args.verbose and print(f" > Ref #{idx + 1}: {element['label']}")
 
     if parse_label(pred) is None:
         print(" > Irregular output:  ", pred)
@@ -231,6 +236,7 @@ for idx, element in enumerate(dataset["test"]):
                 tokenizer,
                 prompt,
                 element["text"],
+                do_sample=True,
                 temperature=0.7,
             )
             args.verbose and print(f" >> Attempted Pred: {pred}")
