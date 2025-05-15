@@ -24,7 +24,7 @@ parser.add_argument(
 )
 parser.add_argument("--use_quantization", action="store_true")
 parser.add_argument("--verbose", action="store_true")
-parser.add_argument("--dataset_name", type=str, default="")
+parser.add_argument("--dataset_name", type=str)
 parser.add_argument(
     "--configuration",
     type=str,
@@ -57,6 +57,16 @@ main_run = wandb.init(
     entity="michelej-m",
     name=f"[{args.configuration}] [{args.label_type}] {args.model_name.split('/')[1]}_zero_shot",
     reinit=True,
+    config={
+        "quantization": args.use_quantization,
+        "language": args.language,
+        "task_labels": args.task_labels,
+        "label_type": args.label_type,
+        "configuration": args.configuration,
+        "model_name": args.model_name,
+        "dataset_name": args.dataset_name,
+        "verbose": args.verbose,
+    },
 )
 
 # ---- Model/Tokenizer loading
@@ -77,6 +87,8 @@ model = AutoModelForCausalLM.from_pretrained(
     attn_implementation="flash_attention_2",
     quantization_config=quantization_config,
 )
+
+model.config.use_cache = True
 
 tokenizer = AutoTokenizer.from_pretrained(args.model_name)
 
@@ -99,6 +111,26 @@ print(dataset)
 num_labels = len(dataset["train"].unique("label"))
 print(" > Label num: ", num_labels)
 
+if args.task_labels == "hp":
+    labels = ["neutral", "hyperpartisan"]
+elif args.task_labels == "fn":
+    if args.language == "en":
+        labels = ["true", "fake"]
+    elif args.language == "es":
+        labels = ["verdadera", "falsa"]
+    elif args.language == "pt":
+        labels = ["verdadera", "falsa"]
+elif args.task_labels == "ht":
+    if args.language == "en":
+        labels = ["neutral", "harmful"]
+    elif args.language == "bg":
+        labels = ["неутрално", "вредно"]
+    elif args.language == "ar":
+        labels = ["محايد", "ضار"]
+elif args.task_labels == "pl":
+    labels = ["left", "center", "right"]
+
+
 # Load prompts for zero-shot evaluation
 if args.label_type == "string":
     prompt_path = "./prompts_ICWSM_str.json"
@@ -108,38 +140,23 @@ else:
 with open(prompt_path, "r", encoding="utf-8") as f:
     prompts = json.load(f)
 
-# Select the appropriate prompt based on task, dataset, and language
-if args.task_labels == "fn" or args.task_labels == "ht":
-    # Multi-language tasks
-    if args.language in prompts[args.task_labels]:
-        prompt = prompts[args.task_labels][args.language][args.configuration]
-    else:
-        # Exit with error if specified language not available
-        print(
-            f"Error: Language {args.language} not available for task {args.task_labels}."
-        )
-        exit(1)
-else:
-    # Single language tasks
-    prompt = prompts[args.task_labels][args.configuration]
-
-print(f"Using prompt template: {prompt}")
+prompt = prompts[args.task_labels][args.language][args.configuration]
+print("-" * 10, "Prompt", "-" * 10)
+print(f"Using prompt: {prompt}")
+print("-" * 25)
 
 
 def parse_label(model_output):
-    # First extract content after "==>" or following "Final prediction/Answer"
-    match = re.search(
-        r"Final (?:prediction|Answer)(?:\s*==>|\s*:)\s*(?:\*\*)?([^\s*]+)(?:\*\*)?",
-        model_output,
-    )
+    # match = re.search(r"(?:\s*==>|\s*:)\s*(?:\*\*)?([^\s*]+)(?:\*\*)?", model_output)
+    # match = re.search(r"==>\s*([^\s]+)", model_output)
+    match = re.search(r"==>\s*(\w+)", model_output)
+
     if not match:
         return None
 
     content = match.group(1).strip().lower()
 
-    # Handle integer-based labels if specified
     if args.label_type == "int":
-        # Look for "0" or "1" (and "2" for pl task) in the output
         if "0" in content:
             return 0
         elif "1" in content:
@@ -149,31 +166,30 @@ def parse_label(model_output):
         else:
             return None
 
-    # Handle string-based labels (default behavior)
     if args.task_labels == "hp":
-        if "neutral" in content:
+        if content == "neutral":
             return 0
-        elif "hyperpartisan" in content:
+        elif content == "hyperpartisan":
             return 1
 
     elif args.task_labels == "fn":
-        if "true" in content:
+        if content in ["true", "verdadera", "verdadeira"]:
             return 0
-        elif "fake" in content:
+        elif content in ["fake", "false", "falsa", "falsa"]:
             return 1
 
     elif args.task_labels == "ht":
-        if "neutral" in content:
+        if content in ["neutral", "محايد", "неутрално", "неутрален"]:
             return 0
-        elif "harmful" in content:
+        elif content in ["harmful", "ضار", "вредно", "вреден"]:
             return 1
 
     elif args.task_labels == "pl":
-        if "center" in content:
+        if content in ["center", "neutral"]:
             return 1
-        elif "left" in content:
+        elif content == "left":
             return 0
-        elif "right" in content:
+        elif content == "right":
             return 2
 
     return None
@@ -196,7 +212,7 @@ def generate(model, tokenizer, prompt, element, do_sample=False, temperature=0.0
 
     generated_ids = model.generate(
         **model_inputs,
-        max_new_tokens=512,
+        max_new_tokens=1024,
         do_sample=do_sample,
         temperature=temperature,
     )
@@ -213,6 +229,9 @@ results = {}
 model_outputs = {}
 
 irregular_outputs = 0
+regularized_outputs = 0
+skipped_items = 0
+
 preds = []
 refs = []
 
@@ -220,15 +239,21 @@ start_time = time.time()
 for idx, element in enumerate(dataset["test"]):
     pred = generate(model, tokenizer, prompt, element["text"])
 
-    args.verbose and print(" > Pred: ", pred)
-    args.verbose and print(f" > Ref #{idx + 1}: {element['label']}")
+    args.verbose and print("=========== Model output ===========")
+    args.verbose and print(pred)
+    args.verbose and print("====================================")
 
-    if parse_label(pred) is None:
-        print(" > Irregular output:  ", pred)
-        print(f" > Index: {idx}")
-        print("*" * 5, "Trying to resolve irregularity", "*" * 5)
+    parsed_label = parse_label(pred)
+    print(f" > Pred #{idx}: ", parsed_label)
+    print(f" > Ref #{idx}: ", element["label"])
+
+    if parsed_label is None:
+        irregular_outputs += 1
         max_retries = 5
         retry_count = 0
+
+        print(f" > Irregular output at element #{idx}:  ", pred)
+        print("*" * 5, "Trying to resolve irregularity", "*" * 5)
 
         while retry_count < max_retries:
             pred = generate(
@@ -243,20 +268,33 @@ for idx, element in enumerate(dataset["test"]):
 
             if parse_label(pred) is not None:
                 print(" >> Regularized output: ", pred)
+                parsed_label = parse_label(pred)
+                print(f" > Pred #{idx}: ", parsed_label)
+
+                regularized_outputs += 1
                 break
 
             retry_count += 1
 
-        if retry_count == max_retries:
-            print(" >> Failed to get valid prediction after max retries")
-            irregular_outputs += 1
-            continue
+            if retry_count == args.max_retries:
+                print(
+                    " >> Failed to get valid prediction after max retries.\n > Forcefully considered false prediction."
+                )
+                skipped_items += 1
 
-    preds.append(parse_label(pred))
+                fallback_label_int = (element["label"] + 1) % num_labels
+                preds.append(fallback_label_int)
+                refs.append(element["label"])
+                continue
+
+    preds.append(parsed_label)
     refs.append(element["label"])
 
 results = compute_metrics(preds, refs)
 results["irregular_outputs"] = irregular_outputs
+results["regularized_outputs"] = regularized_outputs
+results["skipped_items"] = skipped_items
+
 model_outputs = {
     "ground_truth": refs,
     "model_predictions": preds,

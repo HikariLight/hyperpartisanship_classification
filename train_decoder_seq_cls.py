@@ -40,7 +40,7 @@ wandb.init(
     entity="michelej-m",
     name=f"[FT] {args.model_name.split('/')[1]}",
 )
-wandb.log({"num_runs": args.runs})
+wandb.log({"num_runs": args.runs, "language": args.language})
 
 ## --- Tokenizer
 # tokenizer = AutoTokenizer.from_pretrained(args.model_name, add_prefix_space=True)

@@ -27,17 +27,21 @@ def prepare_clef3a(dataset_path):
 
 ### CLEF_1C ###
 def prepare_clef1c(dataset_path, language):
-    features = Features({
-        "tweet_text": Value("string"),
-        "class_label": Value("int64"),
-    })
+    features = Features(
+        {
+            "tweet_text": Value("string"),
+            "class_label": Value("int64"),
+        }
+    )
 
     data_files = {
         "train": f"{dataset_path}/{args.dataset_name}/CT22_{language.lower()}_1C_harmful_train.tsv",
         "test": f"{dataset_path}/{args.dataset_name}/CT22_{language.lower()}_1C_harmful_test_gold.tsv",
     }
 
-    dataset = load_dataset("csv", data_files=data_files, delimiter="\t", features=features)
+    dataset = load_dataset(
+        "csv", data_files=data_files, delimiter="\t", features=features
+    )
     dataset = dataset.rename_column("class_label", "label")
     dataset = dataset.rename_column("tweet_text", "text")
     return dataset
@@ -46,8 +50,11 @@ def prepare_clef1c(dataset_path, language):
 ### ALL-SIDES ###
 def prepare_allsides(dataset_path):
     labels = ["left", "center", "right"]
-    dataset = load_dataset("csv", data_files=f"{dataset_path}/{args.dataset_name}/allsides_balanced_news_headlines-texts.csv")
-    dataset = dataset["train"].train_test_split(test_size=0.2)
+    dataset = load_dataset(
+        "csv",
+        data_files=f"{dataset_path}/{args.dataset_name}/allsides_balanced_news_headlines-texts.csv",
+    )
+    dataset = dataset["train"].train_test_split(test_size=0.2, seed=42)
 
     def concatenate_header_text(example):
         example["text"] = f"{example['heading']}\n{example['text']}"
@@ -59,8 +66,12 @@ def prepare_allsides(dataset_path):
 
 ### FAKE-BR ###
 def prepare_fakebr_corpus(dataset_path):
-    dataset = load_dataset("csv", data_files=f"{dataset_path}/{args.dataset_name}/Fake.br-Corpus.tsv", delimiter="\t")
-    dataset = dataset["train"].train_test_split(test_size=0.2)
+    dataset = load_dataset(
+        "csv",
+        data_files=f"{dataset_path}/{args.dataset_name}/Fake.br-Corpus.tsv",
+        delimiter="\t",
+    )
+    dataset = dataset["train"].train_test_split(test_size=0.2, seed=42)
 
     def format_func(element):
         element["label"] = ["fake", "true"].index(element["label"])
@@ -71,16 +82,31 @@ def prepare_fakebr_corpus(dataset_path):
 
 ### FAKE NEWS CORPUS SPANISH ###
 def prepare_fake_news_corpus_spanish(dataset_path):
-    dataset = DatasetDict({
-        "train": Dataset.from_pandas(pd.read_excel(f"{dataset_path}/{args.dataset_name}/train.xlsx")),
-        "dev": Dataset.from_pandas(pd.read_excel(f"{dataset_path}/{args.dataset_name}/development.xlsx")),
-        "test": Dataset.from_pandas(pd.read_excel(f"{dataset_path}/{args.dataset_name}/test.xlsx")),
-    })
+    dataset = DatasetDict(
+        {
+            "train": Dataset.from_pandas(
+                pd.read_excel(f"{dataset_path}/{args.dataset_name}/train.xlsx")
+            ),
+            "dev": Dataset.from_pandas(
+                pd.read_excel(f"{dataset_path}/{args.dataset_name}/development.xlsx")
+            ),
+            "test": Dataset.from_pandas(
+                pd.read_excel(f"{dataset_path}/{args.dataset_name}/test.xlsx")
+            ),
+        }
+    )
 
-    dataset["test"] = dataset["test"].rename_columns({
-        "ID": "Id", "CATEGORY": "Category", "TOPICS": "Topic", "SOURCE": "Source",
-        "HEADLINE": "Headline", "TEXT": "Text", "LINK": "Link"
-    })
+    dataset["test"] = dataset["test"].rename_columns(
+        {
+            "ID": "Id",
+            "CATEGORY": "Category",
+            "TOPICS": "Topic",
+            "SOURCE": "Source",
+            "HEADLINE": "Headline",
+            "TEXT": "Text",
+            "LINK": "Link",
+        }
+    )
 
     def format_func2(element):
         labels = ["Fake", "True"]
@@ -97,8 +123,14 @@ def prepare_fake_news_corpus_spanish(dataset_path):
 
 ### FAKE NEWS NET ###
 def prepare_fake_news_net(dataset_path):
-    fake_split = [f"{dataset_path}/{args.dataset_name}/politifact_fake.csv", f"{dataset_path}/{args.dataset_name}/gossipcop_fake.csv"]
-    real_split = [f"{dataset_path}/{args.dataset_name}/politifact_real.csv", f"{dataset_path}/{args.dataset_name}/gossipcop_real.csv"]
+    fake_split = [
+        f"{dataset_path}/{args.dataset_name}/politifact_fake.csv",
+        f"{dataset_path}/{args.dataset_name}/gossipcop_fake.csv",
+    ]
+    real_split = [
+        f"{dataset_path}/{args.dataset_name}/politifact_real.csv",
+        f"{dataset_path}/{args.dataset_name}/gossipcop_real.csv",
+    ]
 
     fakes = load_dataset("csv", data_files=fake_split, split="train").to_list()
     real = load_dataset("csv", data_files=real_split, split="train").to_list()
@@ -111,7 +143,7 @@ def prepare_fake_news_net(dataset_path):
     dataset = Dataset.from_list(fakes + real)
     dataset = dataset.rename_column("title", "text")
     dataset = dataset.remove_columns(["id", "news_url", "tweet_ids"])
-    return dataset.train_test_split(test_size=0.2, shuffle=True)
+    return dataset.train_test_split(test_size=0.2, seed=42)
 
 
 ### HYPERPARTISAN NEWS HEADLINES ###
@@ -126,7 +158,10 @@ def prepare_hyperpartisan_news_headlines(dataset_path):
 
 ### SEMEVAL2019 ###
 def prepare_semeval(dataset_path):
-    data_files = {"train": f"{dataset_path}/{args.dataset_name}/train.tsv", "test": f"{dataset_path}/{args.dataset_name}/test.tsv"}
+    data_files = {
+        "train": f"{dataset_path}/{args.dataset_name}/train.tsv",
+        "test": f"{dataset_path}/{args.dataset_name}/test.tsv",
+    }
     dataset = load_dataset("csv", data_files=data_files, delimiter="\t")
     return dataset.rename_column("sentence", "text")
 

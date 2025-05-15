@@ -40,14 +40,16 @@ wandb.init(
     entity="michelej-m",
     name=f"[FT] {args.model_name.split('/')[1]}",
 )
-wandb.log({"num_runs": args.runs})
+wandb.log({"num_runs": args.runs, "language": args.language})
 
 # ---- Model / Tokenizer loading
 model_name = args.model_name
 
 tokenizer = AutoTokenizer.from_pretrained(model_name, add_prefix_space=True)
 tokenizer.pad_token_id = tokenizer.eos_token_id
-tokenizer.pad_token = tokenizer.eos_token
+# tokenizer.pad_token = tokenizer.eos_token
+if tokenizer.pad_token is None:
+    tokenizer.add_special_tokens({"pad_token": "[PAD]"})
 
 # # ---- Dataset loading + Processing
 max_len = 512
@@ -87,8 +89,13 @@ for _ in range(args.runs):
     model.config.pad_token_id = tokenizer.pad_token_id
     model.config.pretraining_tp = 1
 
+    # If using ModernBERT, set target moduels to ["Wqkv"]
     lora_config = LoraConfig(
-        r=8, lora_alpha=16, lora_dropout=0.1, bias="none", task_type="SEQ_CLS"
+        r=8,
+        lora_alpha=16,
+        lora_dropout=0.1,
+        bias="none",
+        task_type="SEQ_CLS",
     )
     model = get_peft_model(model, lora_config)
 
