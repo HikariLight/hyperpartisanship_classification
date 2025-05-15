@@ -59,14 +59,14 @@ To reproduce our findings for any of the datasets, follow these steps:
 The args to compile the training scripts are the following:
 
 Zero-shot/CoT:
-   -language: 'en', 'bg', 'ar', 'es', 'pt'
-   -configuration: zero_shot_generic", "zero_shot_specific", "codebook", "cot
-   -dataset_name: use the corresponding dataset's folder
-   -model_name: refer to HuggingFace ID
-   -task_labels: "hp", "pl", "ht", "fn"
+   -`language: 'en', 'bg', 'ar', 'es', 'pt'`
+   -`configuration: zero_shot_generic", "zero_shot_specific", "codebook", "cot`
+   -`dataset_name: use the corresponding dataset's folder`
+   -`model_name: refer to HuggingFace ID`
+   -`task_labels: "hp", "pl", "ht", "fn"`
 
 Few-shot:
-   -dataset_name: use the corresponding dataset's folder
-   -configuration: "fs_dpp", "fs_random"
-   -language: 'bg', 'en', 'pt'
-   -task_labels: "hp", "pl", "ht", "fn"
+   -`dataset_name: use the corresponding dataset's folder`
+   -`configuration: "fs_dpp", "fs_random"`
+   -`language: 'bg', 'en', 'pt'`
+   -`task_labels: "hp", "pl", "ht", "fn"`
