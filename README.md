@@ -55,3 +55,18 @@ To reproduce our findings for any of the datasets, follow these steps:
 3. Execute the training script for the corresponding configuration:
    1. Zero-shot/CoT: `python eval_zero_cot.py --model_name MODEL_NAME --dataset_name DATASET_NAME --configuration zero_shot_generic --task_labels LABELS --label_type LABEL_TYPE --language LANGUAGE --verbose`
    2. Few-shot: `python eval_few_shot.py --model_name MODEL_NAME --dataset_name DATASET_NAME --configuration CONFIGURATION --task_labels LABELS --label_type LABEL_TYPE --verbose --language LANGUAGE`
+
+The args to compile the training scripts are the following:
+
+Zero-shot/CoT:
+   -language: 'en', 'bg', 'ar', 'es', 'pt'
+   -configuration: zero_shot_generic", "zero_shot_specific", "codebook", "cot
+   -dataset_name: use the corresponding dataset's folder
+   -model_name: refer to HuggingFace ID
+   -task_labels: "hp", "pl", "ht", "fn"
+
+Few-shot:
+   -dataset_name: use the corresponding dataset's folder
+   -configuration: "fs_dpp", "fs_random"
+   -language: 'bg', 'en', 'pt'
+   -task_labels: "hp", "pl", "ht", "fn"

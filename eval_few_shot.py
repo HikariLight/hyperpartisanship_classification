@@ -284,7 +284,7 @@ seeds = [42, 12345, 9876, 2024, 8675309]
 for few_shot in range(start, end, step):
     wandb.init(
         project=args.dataset_name,
-        entity="michelej-m",
+        entity="",
         name=f"[{args.configuration}][{few_shot}_shot] {args.model_name.split('/')[1]}",
         reinit=True,
         config={

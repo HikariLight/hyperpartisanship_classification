@@ -54,7 +54,7 @@ print("Parsed Arguments:", args)
 
 main_run = wandb.init(
     project=args.dataset_name,
-    entity="michelej-m",
+    entity="",
     name=f"[{args.configuration}] [{args.label_type}] {args.model_name.split('/')[1]}_zero_shot",
     reinit=True,
     config={
